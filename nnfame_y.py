@@ -8,13 +8,145 @@ import os
 from datetime import datetime
 import random
 import time
-from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, url_e, url_c, log_e, pass_e, managers_chats_id, service_chats_id
+from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, url_e, url_c, log_e, pass_e, managers_chats_id, service_chats_id, AppId
 import requests
 # os.environ['KMP_DUPLICATE_LIB_OK']='True'
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 # os.environ ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ ["CUDA_VISIBLE_DEVICES"] = ""
 
+#get lists list
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists?page=1&pageSize=100&appId=14' \
+#create stat list
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists' \
+#   --data-raw 'AppId=14&name=statistic&description=stat+data+from+ours+camera&structure=%7B%22links%22%3A%5B%5D%2C%22tables%22%3A%5B%5D%7D' \
+# adding table
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newtable' \
+#   --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%5D%7D%5D' \
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newtable' \
+# --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
+# new col
+#   curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newcolumn' \
+# --data-raw 'tableName=statofobjects&json=%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%5D' \
+# rem col
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/column?tableName=statofobjects&columnName=date' \
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newtable' \
+# --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
+
+  
+def checkAndCreateList():
+    PARAMS = {'login':log_e,'password':pass_e}
+    r = requests.get(url = url_e, params = PARAMS)
+    if r.status_code != 200:
+        return False
+    data = r.json()
+    if not 'access_token' in data:
+        return False
+    try:
+        access_token = data['access_token']
+        refresh_token = data['refresh_token']
+        # print(data,access_token,refresh_token)
+    except KeyError as e:
+        print(' over KeyError 43 ' + str(e))
+        return False
+
+    
+    Headers = { 'Authorization' : "Bearer "+str(access_token) }
+    
+    
+    r = requests.get(url = url_e+"?page=1&pageSize=100&appId="+str(AppId), headers=Headers)
+    if r.status_code != 200:
+        return False
+    data = r.json()
+    if not 'data' in data:
+        return False
+    
+    
+    PARAMS = {'ApplicationId':AppId,
+                # 'Value':'{"source":"Telegram"' + ((',"text":"'+str(textm)+'"') if textm else '') + '}', #,"type":"text"
+                'Value':'{' + (('"&nbsp;":"'+str(textm)+'"') if textm else '"&nbsp;":"_фото_"') + '}', #,"type":"text"
+                'ObjectId':objid,
+                'ActionName':'Chat',
+                'StatusId':dafStatus}
+    # print('PARAMS',PARAMS)
+    r = requests.post(url = url_c, json = PARAMS, data = PARAMS, headers=Headers)
+    if r.status_code != 200:
+        return False
+    data = r.json()
+
+    if not 'meta' in data:
+        return False
+    if not 'data' in data:
+        return False
+    
+    try:
+        eventId = data['data'][0]['id']
+    except KeyError as e:
+        print(' over KeyError 45  ' + str(e))
+        return False
+
+    if len(pathsFiles)>0:
+        for x in pathsFiles:
+            try:
+                file_size = os.path.getsize(x)
+                print(f"File Size in Bytes is {file_size}")
+            except FileNotFoundError:
+                print("File not found.1",x)
+                return False
+            except OSError:
+                print("OS error occurred.")
+                return False
+            except Exception as e:
+                print('read file exception 0 - ',e)
+                return False
+                
+            try:
+                im = cv2.imread(x)
+                h, w, c = im.shape
+                print('width:  ', w)
+                print('height: ', h)
+                print('channel:', c)
+            except FileNotFoundError:
+                print("File not found.0",x)
+                return False
+            except Exception as e:
+                print('read file exception 1 - ',e)
+                return False
+                
+            Name = (x.replace("/home/per_server/tenants/www",""))
+            FileName = x.split("/")[-1]
+            LinkId = eventId
+            ObjectId = objid
+            Url = domen + Name
+            print('Url',Url)
+            FileSize = file_size
+            Height = w
+            Width = h
+            Extension = x.split(".")[-1]
+  
+            res = insertFile(Name=Name,FileName=FileName,LinkId=LinkId,ObjectId=ObjectId,Url=Url,FileSize=FileSize,Height=Height,Width=Width,Extension=Extension)
+            if not res:
+                return False
+            
+    #if all process good
+    return True
+
+    #start adding file
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+
+  
 execution_path = os.getcwd()
 
 print('1')
