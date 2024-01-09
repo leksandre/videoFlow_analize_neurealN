@@ -8,8 +8,10 @@ import os
 from datetime import datetime
 import random
 import time
-from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, url_e, url_c, log_e, pass_e, managers_chats_id, service_chats_id, AppId
+from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, url_a, url_l, urlD, log_e, pass_e, managers_chats_id, service_chats_id, AppId
 import requests
+
+listId = 0
 # os.environ['KMP_DUPLICATE_LIB_OK']='True'
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 # os.environ ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -36,11 +38,16 @@ import requests
   
 def checkAndCreateList():
     PARAMS = {'login':log_e,'password':pass_e}
+    url_e = urlD+(url_a.replace('userLogin555',log_e)).replace('userPassword888',pass_e)
     r = requests.get(url = url_e, params = PARAMS)
+    # print('url_e - ',url_e)
+    # print('r - ',r)
     if r.status_code != 200:
         return False
     data = r.json()
+    # print('dat - ',data)
     if not 'access_token' in data:
+        print(' not access_token ' + str(data))
         return False
     try:
         access_token = data['access_token']
@@ -54,20 +61,35 @@ def checkAndCreateList():
     Headers = { 'Authorization' : "Bearer "+str(access_token) }
     
     
-    r = requests.get(url = url_e+"?page=1&pageSize=100&appId="+str(AppId), headers=Headers)
+    r = requests.get(url = urlD+url_l+"?page=1&pageSize=100&appId="+str(AppId), headers=Headers)
     if r.status_code != 200:
         return False
     data = r.json()
     if not 'data' in data:
+        print(' not data 0 ' + str(data))
         return False
-    print('data',data)
+    if not 'meta' in data:
+        print(' not meta 0 ' + str(data))
+        return False
+
+    for dataList in data['data']:
+        print('dataList',dataList)
+        print('dataList name',dataList['attributes']['name'])    
+        print('dataList satatus',dataList['attributes']['status'])
+        if dataList['attributes']['name']=='statistic':
+            listId = dataList['attributes']['id']
+        
+    if listId == 0 :
+        # createList
+        pass   
+
     
     PARAMS = {'ApplicationId':AppId,
                 # 'Value':'{"source":"Telegram"' + ((',"text":"'+str(textm)+'"') if textm else '') + '}', #,"type":"text"
                 'Value':'{' + (('"&nbsp;":"'+str(textm)+'"') if textm else '"&nbsp;":"_фото_"') + '}', #,"type":"text"
                 'ObjectId':objid,
                 'ActionName':'Chat',
-                'StatusId':dafStatus}
+                'StatusId':34}
     # print('PARAMS',PARAMS)
     r = requests.post(url = url_c, json = PARAMS, data = PARAMS, headers=Headers)
     if r.status_code != 200:
@@ -75,8 +97,10 @@ def checkAndCreateList():
     data = r.json()
 
     if not 'meta' in data:
+        print(' not meta 1 ' + str(data))
         return False
     if not 'data' in data:
+        print(' not data 1 ' + str(data))
         return False
     
     try:
@@ -143,7 +167,8 @@ def checkAndCreateList():
 
 
 
-  
+
+# print('checkAndCreateList - ')
 checkAndCreateList()
 
   

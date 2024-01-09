@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 import random
 import time
-from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, url_e, url_c, log_e, pass_e, managers_chats_id, service_chats_id
+from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, log_e, pass_e, managers_chats_id, service_chats_id
 import requests
 # os.environ['KMP_DUPLICATE_LIB_OK']='True'
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
