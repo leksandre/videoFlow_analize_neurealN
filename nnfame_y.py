@@ -60,7 +60,7 @@ def checkAndCreateList():
     data = r.json()
     if not 'data' in data:
         return False
-    
+    print('data',data)
     
     PARAMS = {'ApplicationId':AppId,
                 # 'Value':'{"source":"Telegram"' + ((',"text":"'+str(textm)+'"') if textm else '') + '}', #,"type":"text"
@@ -144,7 +144,7 @@ def checkAndCreateList():
 
 
   
-  
+checkAndCreateList()
 
   
 execution_path = os.getcwd()
