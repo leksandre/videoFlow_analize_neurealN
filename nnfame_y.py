@@ -11,210 +11,17 @@ import time
 from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, url_a, url_l, urlD, log_e, pass_e, managers_chats_id, service_chats_id, AppId
 import requests
 
-listId = 0
+
 # os.environ['KMP_DUPLICATE_LIB_OK']='True'
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 # os.environ ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ ["CUDA_VISIBLE_DEVICES"] = ""
 
-#get lists list
-# curl 'https://domotel-admin.mobsted.ru/api/v8/lists?page=1&pageSize=100&appId=14' \
-#create stat list
-# curl 'https://domotel-admin.mobsted.ru/api/v8/lists' \
-#   --data-raw 'AppId=14&name=statistic&description=stat+data+from+ours+camera&structure=%7B%22links%22%3A%5B%5D%2C%22tables%22%3A%5B%5D%7D' \
-# adding table
-# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newtable' \
-#   --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%5D%7D%5D' \
-# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newtable' \
-# --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
-# new col
-#   curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newcolumn' \
-# --data-raw 'tableName=statofobjects&json=%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%5D' \
-# rem col
-# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/column?tableName=statofobjects&columnName=date' \
-# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newtable' \
-# --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
+class Response1:
+    def __init__(self, code1, text1):
+        self.result = code1
+        self.text = text1
 
-  
-def checkAndCreateList():
-    PARAMS = {'login':log_e,'password':pass_e}
-    url_e = urlD+(url_a.replace('userLogin555',log_e)).replace('userPassword888',pass_e)
-    r = requests.get(url = url_e, params = PARAMS)
-    # print('url_e - ',url_e)
-    # print('r - ',r)
-    if r.status_code != 200:
-        return False
-    data = r.json()
-    # print('dat - ',data)
-    if not 'access_token' in data:
-        print(' not access_token ' + str(data))
-        return False
-    try:
-        access_token = data['access_token']
-        refresh_token = data['refresh_token']
-        # print(data,access_token,refresh_token)
-    except KeyError as e:
-        print(' over KeyError 43 ' + str(e))
-        return False
-
-    
-    Headers = { 'Authorization' : "Bearer "+str(access_token) }
-    
-    
-    r = requests.get(url = urlD+url_l+"?page=1&pageSize=100&appId="+str(AppId), headers=Headers)
-    if r.status_code != 200:
-        return False
-    data = r.json()
-    if not 'data' in data:
-        print(' not data 0 ' + str(data))
-        return False
-    if not 'meta' in data:
-        print(' not meta 0 ' + str(data))
-        return False
-
-    for dataList in data['data']:
-        print('dataList',dataList)
-        print('dataList name',dataList['attributes']['name'])    
-        print('dataList satatus',dataList['attributes']['status'])
-        if dataList['attributes']['name']=='statistic':
-            listId = dataList['attributes']['id']
-        
-    if listId == 0 :
-        # createList
-        pass   
-
-    
-    PARAMS = {'ApplicationId':AppId,
-                # 'Value':'{"source":"Telegram"' + ((',"text":"'+str(textm)+'"') if textm else '') + '}', #,"type":"text"
-                'Value':'{' + (('"&nbsp;":"'+str(textm)+'"') if textm else '"&nbsp;":"_фото_"') + '}', #,"type":"text"
-                'ObjectId':objid,
-                'ActionName':'Chat',
-                'StatusId':34}
-    # print('PARAMS',PARAMS)
-    r = requests.post(url = url_c, json = PARAMS, data = PARAMS, headers=Headers)
-    if r.status_code != 200:
-        return False
-    data = r.json()
-
-    if not 'meta' in data:
-        print(' not meta 1 ' + str(data))
-        return False
-    if not 'data' in data:
-        print(' not data 1 ' + str(data))
-        return False
-    
-    try:
-        eventId = data['data'][0]['id']
-    except KeyError as e:
-        print(' over KeyError 45  ' + str(e))
-        return False
-
-    if len(pathsFiles)>0:
-        for x in pathsFiles:
-            try:
-                file_size = os.path.getsize(x)
-                print(f"File Size in Bytes is {file_size}")
-            except FileNotFoundError:
-                print("File not found.1",x)
-                return False
-            except OSError:
-                print("OS error occurred.")
-                return False
-            except Exception as e:
-                print('read file exception 0 - ',e)
-                return False
-                
-            try:
-                im = cv2.imread(x)
-                h, w, c = im.shape
-                print('width:  ', w)
-                print('height: ', h)
-                print('channel:', c)
-            except FileNotFoundError:
-                print("File not found.0",x)
-                return False
-            except Exception as e:
-                print('read file exception 1 - ',e)
-                return False
-                
-            Name = (x.replace("/home/per_server/tenants/www",""))
-            FileName = x.split("/")[-1]
-            LinkId = eventId
-            ObjectId = objid
-            Url = domen + Name
-            print('Url',Url)
-            FileSize = file_size
-            Height = w
-            Width = h
-            Extension = x.split(".")[-1]
-  
-            res = insertFile(Name=Name,FileName=FileName,LinkId=LinkId,ObjectId=ObjectId,Url=Url,FileSize=FileSize,Height=Height,Width=Width,Extension=Extension)
-            if not res:
-                return False
-            
-    #if all process good
-    return True
-
-    #start adding file
-
-
-
-
-
-
-
-
-
-
-
-
-# print('checkAndCreateList - ')
-checkAndCreateList()
-
-  
-execution_path = os.getcwd()
-
-print('1')
-# from imageai.Detection import ObjectDetection
-# detector = ObjectDetection()
-
-# from imageai.Classification import ImageClassification
-# detector = ImageClassification()
-
-from imageai.Detection import ObjectDetection
-detector = ObjectDetection()
-print('2')
-
-
-
-probaility = 30
-
-global lastImg
-lastImg = ''
-
-execution_path = os.getcwd()
-print('execution_path',execution_path)
-now = datetime.now()
-
-
-
-eachMin = 5
-
-startPoint = time.time() 
-maxPerson = 0
-
-
-
-# detector.setModelTypeAsRetinaNet()
-# detector.setModelPath( os.path.join(execution_path , "resnet50_coco_best_v2.1.0.h5"))
-
-# detector.setModelTypeAsResNet50()
-# detector.setModelPath('/home/Aleksandr/nnstream/resnet50-19c8e357.pth')
-
-detector.setModelTypeAsYOLOv3()
-detector.setModelPath( os.path.join(execution_path , "yolov3.pt"))
-
-detector.loadModel()
 
 def fixStatistic():
     pass
@@ -261,6 +68,193 @@ def checkImg(pp=probaility,img1='',name1="image_1new"):
     # output_image_path=os.path.join(execution_path , name1+now.strftime("%m_%d_%Y_%H_%M_%S")+".jpg"), # новое изображение которое является результатом обрабоки "входного изображения"
     # minimum_percentage_probability=pp
     # )
+    
+#get lists list
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists?page=1&pageSize=100&appId=14' \
+#create stat list
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists' \
+#   --data-raw 'AppId=14&name=statistic&description=stat+data+from+ours+camera&structure=%7B%22links%22%3A%5B%5D%2C%22tables%22%3A%5B%5D%7D' \
+# adding table
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newtable' \
+#   --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%5D%7D%5D' \
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newtable' \
+# --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
+# new col
+#   curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newcolumn' \
+# --data-raw 'tableName=statofobjects&json=%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%5D' \
+# rem col
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/column?tableName=statofobjects&columnName=date' \
+# curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newtable' \
+# --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
+
+def simpleRequest(isGet = False, **params):
+        try:
+            if isGet:
+                r = requests.get(**params)
+            else:
+                r = requests.post(**params)
+        except requests.exceptions.RequestException as err:
+            print("__OOps: Something Else", err)
+            #return Response1("201", '')
+            return False
+        except requests.exceptions.HTTPError as errh:
+            print("__Http Error:", errh)
+            #return Response1("201", '')
+            return False
+        except requests.exceptions.ConnectionError as errc:
+            print("__Error Connecting:", errc)
+            #return Response1("201", '')
+            return False
+        except requests.exceptions.Timeout as errt:
+            print("__Timeout Error:", errt)
+            #return Response1("201", '')
+            return False
+        except KeyError as e:
+            print(' over KeyError  ' + str(e))
+            #return Response1("201", '')
+            return False
+        print('result:'+str(r.result))
+        print('status_code:'+str(r.status_code))
+        print('text:'+str(r.text)[0:2000])
+        
+        if r.status_code != 200:
+            return False
+        data = r.json()
+        if not 'data' in data:
+            print(' not data 0 ' + str(data))
+            return False
+        if not 'meta' in data:
+            print(' not meta 0 ' + str(data))
+            return False
+
+
+        for dataList in data['data']:
+            print(' data[data] ',dataList)
+        
+        return r
+
+def getListId(access_token, tables):
+    Headers = { 'Authorization' : "Bearer "+str(access_token) }
+    
+    listId = 0
+    
+    r = simpleRequest(isGet=True, url = urlD+url_l+"?page=1&pageSize=100&appId="+str(AppId), headers=Headers)
+    data = r.json()
+
+    for dataList in data['data']:
+        print('dataList',dataList)
+        print('dataList name',dataList['attributes']['name'])    
+        print('dataList satatus',dataList['attributes']['status'])
+        if dataList['attributes']['name']=='statistic':
+            listId = dataList['attributes']['id']
+            for table in dataList['attributes']['structure']['tables']:
+                if table['name']=='statofobjects':
+                    tables['statofobjects']=1
+    return listId
+                
+def checkAndCreateList():
+    PARAMS = {'login':log_e,'password':pass_e}
+    url_e = urlD+(url_a.replace('userLogin555',log_e)).replace('userPassword888',pass_e)
+    
+    r = simpleRequest(isGet=True, url = url_e, params = PARAMS)
+    data = r.json()
+    if not 'access_token' in data:
+        print(' not access_token ' + str(data))
+        return False
+    try:
+        access_token = data['access_token']
+        refresh_token = data['refresh_token']
+        # print(data,access_token,refresh_token)
+    except KeyError as e:
+        print(' over KeyError 43 ' + str(e))
+        return False
+
+    tables = []
+    listId = getListId(access_token,tables)
+        
+    if listId == 0 :
+        # createList
+        maindata = 'AppId='+str(AppId)+'&name=statistic&description=stat+data+from+ours+camera&structure=%7B%22links%22%3A%5B%5D%2C%22tables%22%3A%5B%5D%7D'
+        r = simpleRequest(url=urlD+url_l, Headers=Headers, data=maindata)
+        
+    listId = getListId(access_token,tables)
+    if listId == 0 :
+        print(' List not created ' + str(urlD))
+        return False
+
+    if len(tables)==0:
+        #createTable
+        maindata = [{"name":"statofobjects","fields":[{"name":"date","type":"timestamp without time zone"},{"name":"time","type":"text"},{"name":"person","type":"text"},{"name":"personAvg","type":"text"}]}]
+        r = simpleRequest(url=urlD+url_l, Headers=Headers, json=maindata)
+
+    listId = getListId(access_token,tables)
+    if len(tables)==0:
+        print(' table not created ' + str(urlD))
+        return False
+    
+
+            
+
+
+
+
+
+
+
+
+
+
+
+
+if not checkAndCreateList():
+    print('checkAndCreateList - fail')  
+    return False
+
+  
+execution_path = os.getcwd()
+
+print('1')
+# from imageai.Detection import ObjectDetection
+# detector = ObjectDetection()
+
+# from imageai.Classification import ImageClassification
+# detector = ImageClassification()
+
+from imageai.Detection import ObjectDetection
+detector = ObjectDetection()
+print('2')
+
+
+
+probaility = 30
+
+global lastImg
+lastImg = ''
+
+execution_path = os.getcwd()
+print('execution_path',execution_path)
+now = datetime.now()
+
+
+
+eachMin = 5
+
+startPoint = time.time() 
+maxPerson = 0
+
+
+
+# detector.setModelTypeAsRetinaNet()
+# detector.setModelPath( os.path.join(execution_path , "resnet50_coco_best_v2.1.0.h5"))
+
+# detector.setModelTypeAsResNet50()
+# detector.setModelPath('/home/Aleksandr/nnstream/resnet50-19c8e357.pth')
+
+detector.setModelTypeAsYOLOv3()
+detector.setModelPath( os.path.join(execution_path , "yolov3.pt"))
+
+detector.loadModel()
+
 
 VIDEO_URL = "https://hd-auth.skylinewebcams.com/live.m3u8?a=u1913k4vhn0ss7r5cnuf03th91"
 
