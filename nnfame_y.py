@@ -10,12 +10,54 @@ import random
 import time
 from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, url_a, url_l, urlD, log_e, pass_e, managers_chats_id, service_chats_id, AppId
 import requests
+import json
+
+
+
+
+# config 
+execution_path = os.getcwd()
+
+print('1')
+# from imageai.Detection import ObjectDetection
+# detector = ObjectDetection()
+
+# from imageai.Classification import ImageClassification
+# detector = ImageClassification()
+
+from imageai.Detection import ObjectDetection
+detector = ObjectDetection()
+print('2')
+
+probaility = 30
+
+global lastImg
+global maxPerson
+global startPoint
+maxPerson = 0
+lastImg = ''
+
+execution_path = os.getcwd()
+print('execution_path',execution_path)
+now = datetime.now()
+
+
+
+eachMin = 5
+
+startPoint = time.time() 
+
 
 
 # os.environ['KMP_DUPLICATE_LIB_OK']='True'
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 # os.environ ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ ["CUDA_VISIBLE_DEVICES"] = ""
+
+
+
+# class adn func
+
 
 class Response1:
     def __init__(self, code1, text1):
@@ -47,6 +89,8 @@ def checkImg(pp=probaility,img1='',name1="image_1new"):
         # print(eachObject["box_points"][3] )
         print("--------------------------------")
     
+    global maxPerson
+    global startPoint
     if maxPerson<persomCount:
         maxPerson=persomCount
     
@@ -87,11 +131,12 @@ def checkImg(pp=probaility,img1='',name1="image_1new"):
 # curl 'https://domotel-admin.mobsted.ru/api/v8/lists/12/newtable' \
 # --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
 
-def simpleRequest(isGet = False, **params):
+def simpleRequest(isGet = False, checkStruct = False, **params):
         try:
             if isGet:
                 r = requests.get(**params)
             else:
+                # print('post params',params)
                 r = requests.post(**params)
         except requests.exceptions.RequestException as err:
             print("__OOps: Something Else", err)
@@ -113,27 +158,42 @@ def simpleRequest(isGet = False, **params):
             print(' over KeyError  ' + str(e))
             #return Response1("201", '')
             return False
-        print('result:'+str(r.result))
+        # print('result text:'+str(r.text))
+        
+        # print('response:', (r))
+        # print('response type:', type(r))
+        
         print('status_code:'+str(r.status_code))
-        print('text:'+str(r.text)[0:2000])
+        
+        
+        
         
         if r.status_code != 200:
+            print('text:'+str(r.text)[0:2000])
             return False
-        data = r.json()
-        if not 'data' in data:
-            print(' not data 0 ' + str(data))
-            return False
-        if not 'meta' in data:
-            print(' not meta 0 ' + str(data))
-            return False
-
-
-        for dataList in data['data']:
-            print(' data[data] ',dataList)
+        
+        d = json.JSONDecoder()
+        
+        try:
+            data = json.loads(r.text)
+        except json.JSONDecodeError:
+            print(' not json 0 ' + str(r.text)[0:2000])
+            return 0
+        
+        if checkStruct:
+            if not 'data' in data:
+                print(' not data 0 ' + str(data))
+                return False
+            if not 'meta' in data:
+                print(' not meta 0 ' + str(data))
+                return False
+            for dataList in data['data']:
+                print(' data[data] ',dataList)
         
         return r
 
-def getListId(access_token, tables):
+def getListId(tables):
+    global access_token
     Headers = { 'Authorization' : "Bearer "+str(access_token) }
     
     listId = 0
@@ -146,13 +206,15 @@ def getListId(access_token, tables):
         print('dataList name',dataList['attributes']['name'])    
         print('dataList satatus',dataList['attributes']['status'])
         if dataList['attributes']['name']=='statistic':
-            listId = dataList['attributes']['id']
+            listId = dataList['id']
             for table in dataList['attributes']['structure']['tables']:
                 if table['name']=='statofobjects':
-                    tables['statofobjects']=1
+                    tables.append('statofobjects')
     return listId
                 
 def checkAndCreateList():
+    global access_token
+    
     PARAMS = {'login':log_e,'password':pass_e}
     url_e = urlD+(url_a.replace('userLogin555',log_e)).replace('userPassword888',pass_e)
     
@@ -170,78 +232,43 @@ def checkAndCreateList():
         return False
 
     tables = []
-    listId = getListId(access_token,tables)
-        
+    listId = getListId(tables)
+    
+
+    Headers = { 'Authorization' : "Bearer "+str(access_token), 'Content-Type': 'application/x-www-form-urlencoded' }
     if listId == 0 :
         # createList
         maindata = 'AppId='+str(AppId)+'&name=statistic&description=stat+data+from+ours+camera&structure=%7B%22links%22%3A%5B%5D%2C%22tables%22%3A%5B%5D%7D'
-        r = simpleRequest(url=urlD+url_l, Headers=Headers, data=maindata)
+        r = simpleRequest(url=urlD+url_l, headers=Headers, data=maindata)
         
-    listId = getListId(access_token,tables)
+    listId = getListId(tables)
     if listId == 0 :
         print(' List not created ' + str(urlD))
         return False
 
     if len(tables)==0:
         #createTable
-        maindata = [{"name":"statofobjects","fields":[{"name":"date","type":"timestamp without time zone"},{"name":"time","type":"text"},{"name":"person","type":"text"},{"name":"personAvg","type":"text"}]}]
-        r = simpleRequest(url=urlD+url_l, Headers=Headers, json=maindata)
+        # Headers = { 'Authorization' : "Bearer "+str(access_token), 'Content-Type': 'application/json' }
+        
+        # maindata = [{"name":"statofobjects","fields":[{"name":"date","type":"timestamp without time zone"},{"name":"time","type":"text"},{"name":"person","type":"text"},{"name":"personAvg","type":"text"}]}]
+        # maindata = {"json":[{"name":"statofobjects","fields":[{"name":"date","type":"timestamp without time zone"},{"name":"time","type":"text"},{"name":"person","type":"text"},{"name":"personAvg","type":"text"}]}]}
 
-    listId = getListId(access_token,tables)
+        maindata = 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D'
+        r = simpleRequest(url=urlD+url_l+'/'+str(listId)+'/newtable', headers=Headers, data=maindata)
+
+    listId = getListId(tables)
     if len(tables)==0:
         print(' table not created ' + str(urlD))
         return False
-    
+    return True
 
             
 
 
 
-
-
-
-
-
-
-
-
-
 if not checkAndCreateList():
     print('checkAndCreateList - fail')  
-    return False
-
-  
-execution_path = os.getcwd()
-
-print('1')
-# from imageai.Detection import ObjectDetection
-# detector = ObjectDetection()
-
-# from imageai.Classification import ImageClassification
-# detector = ImageClassification()
-
-from imageai.Detection import ObjectDetection
-detector = ObjectDetection()
-print('2')
-
-
-
-probaility = 30
-
-global lastImg
-lastImg = ''
-
-execution_path = os.getcwd()
-print('execution_path',execution_path)
-now = datetime.now()
-
-
-
-eachMin = 5
-
-startPoint = time.time() 
-maxPerson = 0
-
+    exit()
 
 
 # detector.setModelTypeAsRetinaNet()
