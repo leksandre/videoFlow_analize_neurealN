@@ -32,10 +32,17 @@ print('2')
 probaility = 30
 
 global lastImg
-global maxPerson
-global startPoint
-maxPerson = 0
 lastImg = ''
+global maxPerson
+maxPerson = 0
+global startPoint
+startPoint = time.time() 
+global PrevDetection
+PrevDetection = False
+global structable
+structable = False
+
+
 
 execution_path = os.getcwd()
 print('execution_path',execution_path)
@@ -45,7 +52,7 @@ now = datetime.now()
 
 eachMin = 5
 
-startPoint = time.time() 
+
 
 
 
@@ -68,7 +75,49 @@ class Response1:
 def fixStatistic():
     pass
 
+def compare_detections(list1, list2, path=""):
+    # Проверяем, являются ли оба объекта списками
+    if isinstance(list1, list) and isinstance(list2, list):
+        # Проверяем, имеют ли списки одинаковую длину
+        if len(list1) != len(list2):
+            print(f"Различное количество элементов: {path}")
+        # Рекурсивно сравниваем каждый элемент списков
+        for i in range(min(len(list1), len(list2))):
+            compare_detections(list1[i], list2[i], f"{path}[{i}]")
+    else:
+        # Если объекты не являются списками, сравниваем их значения
+        if list1 != list2:
+            print(f"Различное значение: {path} - {list1}, {list2}")
+            
+def checkAndCreateColumn(nameCol):
+    if not structable:
+        print(f"'это не то': {structable}")
+        return
+    if not isinstance(structable, list):
+        print(f"'это не лист': {structable}")
+        return 
+    colNameExist = False
+    colAvgExist = False
+    for col in structable:
+        if col['name']==nameCol:
+            colNameExist = True
+        if col['name']==nameCol+'Avg':
+            colAvgExist = True
+    Headers = { 'Authorization' : "Bearer "+str(access_token), 'Content-Type': 'application/x-www-form-urlencoded' }
+    if not colAvgExist:
+        maindata = f"tableName=statofobjects&json=%5B%7B%22name%22%3A%{nameCol+'Avg'}%22%2C%22type%22%3A%22text%22%7D%5D"
+        r = simpleRequest(url=urlD+url_l, headers=Headers, data=maindata)
+    if not colNameExist:
+        maindata = f"tableName=statofobjects&json=%5B%7B%22name%22%3A%{nameCol}%22%2C%22type%22%3A%22text%22%7D%5D"
+        r = simpleRequest(url=urlD+url_l, headers=Headers, data=maindata)
+    getListId()
+        
 def checkImg(pp=probaility,img1='',name1="image_1new"):
+    
+    global maxPerson
+    global startPoint
+    global PrevDetection
+    
     start_time = time.time() 
     # predictions, probabilities = detector.classifyImage("./image1.jpg", result_count=20)
     
@@ -78,21 +127,26 @@ def checkImg(pp=probaility,img1='',name1="image_1new"):
     execution_time = end_time - start_time  # вычисляем время выполнения
     print(f"- Время распознования: {execution_time} секунд")
     
-    persomCount = 0
+    personCount = 0
+    
+    CurDetection = detections
+    if PrevDetection:
+        compare_detections(PrevDetection,CurDetection)
+    
     for eachObject in detections:
         print(eachObject["name"] , " : ", eachObject["percentage_probability"], " : ", eachObject["box_points"] )
+
         if eachObject["name"]=='person':
-            persomCount = 1+persomCount
+            personCount = 1+personCount
         # print(eachObject["box_points"][0] )
         # print(eachObject["box_points"][1] )
         # print(eachObject["box_points"][2] )
         # print(eachObject["box_points"][3] )
         print("--------------------------------")
     
-    global maxPerson
-    global startPoint
-    if maxPerson<persomCount:
-        maxPerson=persomCount
+    
+    if maxPerson<personCount:
+        maxPerson=personCount
     
     total_time = startPoint - start_time 
     
@@ -100,7 +154,9 @@ def checkImg(pp=probaility,img1='',name1="image_1new"):
         fixStatistic()
         startPoint = time.time() 
         maxPerson = 0
-        
+    
+    
+    PrevDetection = CurDetection
         
     # for eachPrediction, eachProbability in zip(predictions, probabilities):
     #   if(probabilities[0]>0.3):
@@ -192,8 +248,9 @@ def simpleRequest(isGet = False, checkStruct = False, **params):
         
         return r
 
-def getListId(tables):
+def getListId(tables=[]):
     global access_token
+    global structable
     Headers = { 'Authorization' : "Bearer "+str(access_token) }
     
     listId = 0
@@ -209,6 +266,7 @@ def getListId(tables):
             listId = dataList['id']
             for table in dataList['attributes']['structure']['tables']:
                 if table['name']=='statofobjects':
+                    structable = table['fields'] 
                     tables.append('statofobjects')
     return listId
                 
@@ -231,16 +289,16 @@ def checkAndCreateList():
         print(' over KeyError 43 ' + str(e))
         return False
 
-    tables = []
-    listId = getListId(tables)
     
-
+    listId = getListId()
+    
     Headers = { 'Authorization' : "Bearer "+str(access_token), 'Content-Type': 'application/x-www-form-urlencoded' }
+    
     if listId == 0 :
         # createList
         maindata = 'AppId='+str(AppId)+'&name=statistic&description=stat+data+from+ours+camera&structure=%7B%22links%22%3A%5B%5D%2C%22tables%22%3A%5B%5D%7D'
         r = simpleRequest(url=urlD+url_l, headers=Headers, data=maindata)
-        
+    tables = []    
     listId = getListId(tables)
     if listId == 0 :
         print(' List not created ' + str(urlD))
@@ -248,14 +306,9 @@ def checkAndCreateList():
 
     if len(tables)==0:
         #createTable
-        # Headers = { 'Authorization' : "Bearer "+str(access_token), 'Content-Type': 'application/json' }
-        
-        # maindata = [{"name":"statofobjects","fields":[{"name":"date","type":"timestamp without time zone"},{"name":"time","type":"text"},{"name":"person","type":"text"},{"name":"personAvg","type":"text"}]}]
-        # maindata = {"json":[{"name":"statofobjects","fields":[{"name":"date","type":"timestamp without time zone"},{"name":"time","type":"text"},{"name":"person","type":"text"},{"name":"personAvg","type":"text"}]}]}
-
         maindata = 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestamp+without+time+zone%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D'
         r = simpleRequest(url=urlD+url_l+'/'+str(listId)+'/newtable', headers=Headers, data=maindata)
-
+    tables = []
     listId = getListId(tables)
     if len(tables)==0:
         print(' table not created ' + str(urlD))
