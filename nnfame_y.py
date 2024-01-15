@@ -57,7 +57,7 @@ now = datetime.now()
 
 
 
-eachMin = 1
+eachMin = 5
 
 
 
@@ -419,6 +419,7 @@ detector.setModelTypeAsYOLOv3()
 detector.setModelPath( os.path.join(execution_path , "yolov3.pt"))
 
 detector.loadModel()
+
 
 
 VIDEO_URL = "https://hd-auth.skylinewebcams.com/live.m3u8?a=u1913k4vhn0ss7r5cnuf03th91"
