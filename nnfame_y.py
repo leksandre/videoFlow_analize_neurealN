@@ -57,7 +57,7 @@ now = datetime.now()
 
 
 
-eachMin = 5
+eachMin = 5.0
 
 
 
@@ -91,18 +91,18 @@ eachMin = 5
 # curl 'https://h1.h2/api/v8/lists/12/newtable' \
 #   --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%5D%7D%5D' \
 # curl 'https://h1.h2/api/v8/lists/12/newtable' \
-# --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestext%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
+# --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestext%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person_avg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
 # new col
 #   curl 'https://h1.h2/api/v8/lists/12/newcolumn' \
 # --data-raw 'tableName=statofobjects&json=%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestext%22%7D%5D' \
 # rem col
 # curl 'https://h1.h2/api/v8/lists/12/column?tableName=statofobjects&columnName=date' \
 # curl 'https://h1.h2/api/v8/lists/12/newtable' \
-# --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestext%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
+# --data-raw 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22timestext%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person_avg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D' \
 
 # add row
 # curl 'https://h1.h2/api/v8/list' \
-#   --data-raw 'listId=16&tableName=statofobjects&json=%7B%22date%22%3Anull%2C%22time%22%3A%22datetime1%22%2C%22person%22%3A%2212%22%2C%22personAvg%22%3A%220.8%22%7D' \
+#   --data-raw 'listId=16&tableName=statofobjects&json=%7B%22date%22%3Anull%2C%22time%22%3A%22datetime1%22%2C%22person%22%3A%2212%22%2C%22person_avg%22%3A%220.8%22%7D' \
 #   --compressed
 
 # class adn func
@@ -125,16 +125,16 @@ def checkAndCreateColumn(nameCol):
     for col in structable:
         if col['name']==nameCol:
             colNameExist = True
-        if col['name']==nameCol+'Avg':
+        if col['name']==nameCol+'_avg':
             colAvgExist = True
     Headers = { 'Authorization' : "Bearer "+str(access_token), 'Content-Type': 'application/x-www-form-urlencoded' }
-    if not colAvgExist:
-        # listId = getListId() #get from global
-        maindata = f"tableName=statofobjects&json=%5B%7B%22name%22%3A%{nameCol+'Avg'}%22%2C%22type%22%3A%22text%22%7D%5D"
-        r = simpleRequest(url=urlD+url_l+'/'+str(listId)+'/newcolumn', headers=Headers, data=maindata)
+    # if not colAvgExist:
+    #     # listId = getListId() #get from global
+    #     maindata = f"tableName=statofobjects&json=%5B%7B%22name%22%3A%22{nameCol+'_avg'}%22%2C%22type%22%3A%22text%22%7D%5D"
+    #     r = simpleRequest(url=urlD+url_l+'/'+str(listId)+'/newcolumn', headers=Headers, data=maindata)
     if not colNameExist:
         # listId = getListId() #get from global
-        maindata = f"tableName=statofobjects&json=%5B%7B%22name%22%3A%{nameCol}%22%2C%22type%22%3A%22text%22%7D%5D"
+        maindata = f"tableName=statofobjects&json=%5B%7B%22name%22%3A%22{nameCol}%22%2C%22type%22%3A%22text%22%7D%5D"
         r = simpleRequest(url=urlD+url_l+'/'+str(listId)+'/newcolumn', headers=Headers, data=maindata)
     getListId()
     
@@ -149,7 +149,7 @@ def fixStatistic(*params):
         time_1 = now_1.strftime("%H:%M:%S")
         date_1 = now_1.strftime("%Y-%m-%d")
         # date_1 = now_1.strftime("%d/%m/%Y %H:%M")
-        maindata = f"listId={listId}&tableName=statofobjects&json=%7B%22date%22%3A%22{date_1}%22%2C%22time%22%3A%22{time_1}%22%2C%22person%22%3A%22{params[0]}%22%2C%22personAvg%22%3A%22{params[1]}%22%7D"
+        maindata = f"listId={listId}&tableName=statofobjects&json=%7B%22date%22%3A%22{date_1}%22%2C%22time%22%3A%22{time_1}%22%2C%22person%22%3A%22{params[0]}%22%2C%22person_avg%22%3A%22{params[1]}%22%7D"
         print(f"fix stats maindata: {maindata}")
         r = simpleRequest(url=urlD+(url_l[:-1]), headers=Headers, data=maindata, showresp = True)
     pass
@@ -391,7 +391,7 @@ def checkAndCreateList():
 
     if len(tables)==0:
         #createTable
-        maindata = 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22personAvg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D'
+        maindata = 'json=%5B%7B%22name%22%3A%22statofobjects%22%2C%22fields%22%3A%5B%7B%22name%22%3A%22date%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22time%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person%22%2C%22type%22%3A%22text%22%7D%2C%7B%22name%22%3A%22person_avg%22%2C%22type%22%3A%22text%22%7D%5D%7D%5D'
         r = simpleRequest(url=urlD+url_l+'/'+str(listId)+'/newtable', headers=Headers, data=maindata)
     tables = []
     listId = getListId(tables)
