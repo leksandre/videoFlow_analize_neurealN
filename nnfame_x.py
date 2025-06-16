@@ -1,5 +1,6 @@
 import cv2
 import os
+os.environ['NNPACK'] = '0'  # Отключаем NNPACK
 import time
 import numpy as np
 from imageai.Detection import ObjectDetection
@@ -8,8 +9,17 @@ import requests
 import json
 from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, url_a, url_l, urlD, log_e, pass_e, managers_chats_id, service_chats_id, AppId
 
+import logging
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+
 from io import BytesIO
-import m3u8
+#import m3u8
 from PIL import Image
 from datetime import datetime
 import random
@@ -17,38 +27,57 @@ from luckydonaldUtils.encoding import to_binary as b, to_native as n
 from luckydonaldUtils.exceptions import assert_type_or_raise
 from base64 import b64encode
 
+
 from ultralytics import YOLO
+
+import torch
+
+from torch import load
+from torch.serialization import _load
+
+
+
+
+
+import warnings
+warnings.filterwarnings("ignore", module="torch.nn.quantized")
+
+
+
+# Переопределяем load, чтобы разрешить unsafe глобалы
+def unsafe_torch_load(*args, **kwargs):
+    kwargs.setdefault('weights_only', False)
+    return load(*args, **kwargs)
+
+# Monkey patch
+torch._load = unsafe_torch_load
+torch.load = unsafe_torch_load
+
 
 model = YOLO('best.pt')
 
 
-# Initialize the object detection model
-#detector = ObjectDetection()
-#detector.setModelTypeAsYOLOv3()
-#detector.setModelPath(os.path.join(os.getcwd(), "pretrained-yolov3.h5"))
-#detector.setModelPath(os.path.join(os.getcwd(), "best_Construction_Equipment.v6i-constructionequipment-ejop6.pt"))
-#detector.setModelPath(os.path.join(os.getcwd(), "best.pt"))
-#detector.loadModel()
+num_classes = 10
+classes = ['Hardhat', 'Mask', 'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest', 'Person', 'Safety Cone', 'Safety Vest', 'machinery', 'vehicle']
 
-# Define RTSP URLs
-# RTSP_URLS = [
-#     "rtsp://adminn:12345q@192.168.1.12:554/stream",
-#     "rtsp://admin:12345q@192.168.1.56:554/stream"
-# ]
 
-execution_path = "/home/Aleksandr/nnstream"
-execution_image_path = "/home/Aleksandr/nnstream/img"
+
+
+
+
+execution_path = "/home/Aleksandr/nnfame"
+execution_image_path = "/home/Aleksandr/nnfame/img"
 
 RTSP_URLS = [
     {
         "name": "Analog",
-        "url": "rtsp://adminn:12345q@192.168.1.12:554/stream",
+        "url": "rtsp://192.168.1.12:554/user=adminn&password=12345q&channel=1&stream=1?.sdp",
         "weights": 3,
         "threshold": 0.3
     },
     {
         "name": "IP",
-        "url": "rtsp://admin:12345q@192.168.1.56:554/stream",
+        "url": "rtsp://192.168.1.56:554/user=admin&password=12345q&channel=1&stream=1?.sdp",
         "weights": 16,
         "threshold": 0.3
     }
@@ -98,23 +127,26 @@ def get_file(file_path, as_png=True):
         logger.error(f"File does not exist: {file_path}")
         return None
 
-    with open(file_path, 'rb') as file:
-        content = file.read()
+    try:
+        with open(file_path, 'rb') as file:
+            content = file.read()
 
-    fake_input = BytesIO(content)
-    fake_input.seek(0)
-    if not as_png:
-        return fake_input
-    # end if
+        fake_input = BytesIO(content)
+        fake_input.seek(0)
+        
+        if not as_png:
+            return fake_input
 
-    im = Image.open(fake_input)
-    del fake_input
-    fake_output = BytesIO()
-    im.save(fake_output, "PNG")
-    del im
-    fake_output.seek(0)
-    return fake_output
-# end def
+        im = Image.open(fake_input)
+        del fake_input
+        fake_output = BytesIO()
+        im.save(fake_output, "PNG")
+        del im
+        fake_output.seek(0)
+        return fake_output
+    except Exception as e:
+        logger.error(f"Error processing file {file_path}: {str(e)}")
+        return None
 
 # Function to fix statistics
 def fixStatistic(index, maxPerson, statObj):
@@ -127,67 +159,93 @@ def fixStatistic(index, maxPerson, statObj):
     r = simpleRequest(url=urlD + (url_l[:-1]), headers=Headers, data=maindata, showresp=True)
 
 # Function to process each video stream
+
 def process_stream(index, rtsp_url, weights, threshold, d_cam):
     global maxPerson, statObj, startPoint, PrevDetection, newCols, access_token
     
-    print(f"Запущен поток: {index}, камера: {d_cam}, URL: {rtsp_url}  {d_cam}, Камер: {weights}, Порог: {threshold}")
+    print(f"Запущен поток: {index}, камера: {d_cam}, URL: {rtsp_url}, Камер: {weights}, Порог: {threshold}")
 
-    if 1:
-        stream_url = f"{rtsp_url}{d_cam}"
+    # Определяем тип URL и формируем правильный поток
+    if "user=admin" in rtsp_url and "channel=" in rtsp_url:
+        # Для камер основной линейки
+        if d_cam=="":
+            d_cam =0
+        stream_url = rtsp_url.replace("channel=1", f"channel={d_cam+1}")  # каналы обычно начинаются с 1
+    elif "@" in rtsp_url and "mpeg4" in rtsp_url:
+        # Для камер 7-ой серии (PN7X...)
+        stream_url = rtsp_url.replace("mpeg4", f"mpeg4/ch{d_cam+1}/main")  # предполагаем структуру URL
+    elif "chID=" in rtsp_url and "streamType=" in rtsp_url:
+        # Для регистраторов серии PVNR-9X-XX
+        stream_url = rtsp_url.replace("chID=1", f"chID={d_cam+1}")
+    else:
+        # Стандартный RTSP поток (как в исходном коде)
+        stream_url = f"{rtsp_url}{d_cam}" if d_cam != 0 else rtsp_url
         
-        # if d_cam==0:
-        #     stream_url = f"{rtsp_url}"
-        
-        print(f"[Поток {index}-#{d_cam}] Попытка открыть: {stream_url}")
+    print(f"[Поток {index}-#{d_cam}] Попытка открыть: {stream_url}")
 
-        cap = cv2.VideoCapture(stream_url)
-        if not cap.isOpened():
-            print(f"Failed to open stream {rtsp_url}{d_cam}")
-            return
+    cap = cv2.VideoCapture(stream_url)
+    if not cap.isOpened():
+        print(f"Failed to open stream {stream_url}")
+        return
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                print(f"Failed to read frame from stream {rtsp_url}{d_cam}")
-                break
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            print(f"Failed to read frame from stream {stream_url}")
+            time.sleep(5)  # Пауза перед повторной попыткой
+            continue
                 
-            way1 = os.path.join(execution_image_path , f'image_{index}_{d_cam}.png')
-            way2 = os.path.join(execution_image_path , f'image_{index}_{d_cam}_new.png')
+        way1 = os.path.join(execution_image_path, f'image_{index}_{d_cam}.png')
+        way2 = os.path.join(execution_image_path, f'image_{index}_{d_cam}_new.png')
             
-            cv2.imwrite(way1, frame, [cv2.IMWRITE_PNG_COMPRESSION, 1])
-            
+        cv2.imwrite(way1, frame, [cv2.IMWRITE_PNG_COMPRESSION, 1])
 
-
-
+        try:
+            img = Image.open(way1) 
+            img.verify()  
+            print("Файл в порядке")
+        except Exception as e:
+            print("Файл повреждён:", e)
             try:
                 img = Image.open(way1) 
-                img.verify()  
-                print("Файл в порядке")
-            except Exception as e:
-                print("Файл повреждён:", e)
-                try:
-                    img = Image.open(way1) 
-                    img.save(way1)
-                    print("Файл сохранен")
-                except Exception as e2:
-                    print("Файл не исправен:", e2)
-                    break
+                img.save(way1)
+                print("Файл сохранен")
+            except Exception as e2:
+                print("Файл не исправен:", e2)
+                time.sleep(5)
+                continue
 
-
-            print('writed 1 ',way1)
-            detections = detector.detectObjectsFromImage(input_image=way1, output_image_path=way2, minimum_percentage_probability=30)
-
-            print('writed 2 ',way2)
-   
+        print('writed 1 ', way1)
+        
+        # Используем YOLO для детекции
+        try:
+            results = model.predict(source=way1, save=True, save_txt=True)
             
+            # Обрабатываем результаты YOLO
+            detections = []
+            for result in results:
+                for box in result.boxes:
+                    class_id = int(box.cls)
+                    confidence = float(box.conf)
+                    bbox = box.xyxy[0].tolist()
+                    
+                    detection = {
+                        "name": classes[class_id].lower(),
+                        "percentage_probability": confidence * 100,
+                        "box_points": bbox
+                    }
+                    detections.append(detection)
+            
+            print('writed 2 ', way2)
+   
             for eachObject in detections:
                 print(eachObject["name"], " : ", eachObject["percentage_probability"], " : ", eachObject["box_points"])
                 print("--------------------------------")
-                if eachObject["name"] != 'person':
+                if eachObject["name"] != 'person':  # Обратите внимание на регистр
                     checkAndCreateColumn(index, eachObject["name"])
 
             file_content = get_file(file_path=way2, as_png=False)
-            image=iterm_show_file(way2, data=file_content, inline=True, height=None),
+            image = iterm_show_file(way2, data=file_content, inline=True, height=None)
             
             filtered_data_cur = [item for item in detections if item['name'] == 'person']
             personCount = len(filtered_data_cur)
@@ -209,8 +267,11 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
 
             PrevDetection[index] = detections
 
-            time.sleep(5)
-
+        except Exception as e:
+            print(f"Ошибка при обработке изображения: {e}")
+        
+        time.sleep(5)
+        
 
 def iterm_show_file(filename, data=None, inline=True, width="auto", height="auto", preserve_aspect_ratio=True):
     """
@@ -467,11 +528,15 @@ def main():
     threads = []
     for rtsp_info in RTSP_URLS:
     
-      thread = Thread(
-            target=process_stream,
-            args=(rtsp_info["name"], rtsp_info["url"], rtsp_info["weights"], rtsp_info["threshold"], "")
-        )
-      if False:  
+      if True:
+          thread = Thread(
+                target=process_stream,
+                args=(rtsp_info["name"], rtsp_info["url"], rtsp_info["weights"], rtsp_info["threshold"], "")
+            )
+          thread.start()
+          threads.append(thread)
+          
+      if True:  
        for d in range(rtsp_info["weights"]):
         thread = Thread(
             target=process_stream,
