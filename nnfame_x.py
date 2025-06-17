@@ -147,7 +147,7 @@ access_token = ''
 
 
 
-def send_telegram_alert(detected_objects, image_path):
+def send_telegram_alert(detected_objects, image_path, image_path_orig):
     """Отправляет уведомление в Telegram с фотографией"""
     message = "⚠️ Обнаружены нарушения безопасности:\n"
     for obj in detected_objects:
@@ -168,6 +168,10 @@ def send_telegram_alert(detected_objects, image_path):
         # Отправка фотографии
         photo_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
         with open(image_path, 'rb') as photo:
+            files = {'photo': photo}
+            data = {'chat_id': TELEGRAM_CHAT_ID}
+            requests.post(photo_url, files=files, data=data)
+        with open(image_path_orig, 'rb') as photo:
             files = {'photo': photo}
             data = {'chat_id': TELEGRAM_CHAT_ID}
             requests.post(photo_url, files=files, data=data)
@@ -294,35 +298,38 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
 
 
 
-
     cap = cv2.VideoCapture(stream_url)
-    last_cap_time = time.time()
     if not cap.isOpened():
         print(f"Failed to open stream {stream_url}")
         return
-
+    
+    last_cap_time = time.time()
+    
+    #print(f"000\n\n")
     cap.set(cv2.CAP_PROP_POS_AVI_RATIO, 1)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Уменьшаем размер буфера
     cap.set(cv2.CAP_PROP_FPS, 10)  # Устанавливаем разумный FPS
-    cap.set(cv2.CAP_PROP_LOW_LATENCY, 1) 
+
         
-        
+
+    #print(f"0001111\n\n")
     while True:
     
+        #print(f"000222\n\n")
         if time.time() - last_cap_time > 30:  # Каждые 30 секунд
             cap.release()
             cap = cv2.VideoCapture(stream_url)
             cap.set(cv2.CAP_PROP_POS_AVI_RATIO, 1)
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Уменьшаем размер буфера
             cap.set(cv2.CAP_PROP_FPS, 10)  # Устанавливаем разумный FPS
-            cap.set(cv2.CAP_PROP_LOW_LATENCY, 1) 
+ 
             last_cap_time = time.time()
-    
+        #print(f"111\n\n")
         # Очищаем буфер кадров
-        for _ in range(2):  # Пропускаем несколько кадров
+        for _ in range(50):  # Пропускаем несколько кадров
           if not cap.grab():
-            print("Ошибка grab()")
-            break
+            #print("Ошибка grab()")
+            continue
         
         # Получаем актуальный кадр
         ret, frame = cap.retrieve()
@@ -333,7 +340,7 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
             continue
                 
         way1 = os.path.join(execution_image_path, f'image_{index}_{d_cam}.png')
-        
+        #print(f"222\n\n")
         cv2.imwrite(way1, frame, [cv2.IMWRITE_PNG_COMPRESSION, 1])
 
         if False:
@@ -353,13 +360,14 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
                     continue
 
         #print('writed 1 ', way1)
-        
+        #print(f"333\n\n")
         try:
             results = model.predict(source=way1, save=True, save_txt=True,  project=execution_image_path, name='detection_output',  exist_ok=True )
             way2 = os.path.join(execution_image_path, 'detection_output',f'image_{index}_{d_cam}.png')
             detections = []
             violations = [] 
             persons = []
+            #print(f"444\n\n")
             for result in results:
                 boxes = result.boxes  # Это объект Boxes
                 if boxes is not None:
@@ -396,7 +404,7 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
             # Отправляем уведомление только о реальных нарушениях
             if real_violations:
                 # Отправляем уведомление
-                send_telegram_alert(violations, way2)
+                send_telegram_alert(violations, way2, way1)
         
             if detections:
                 #print("Объекты найдены!!! -------------------------------")
