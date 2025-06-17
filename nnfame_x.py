@@ -1,21 +1,28 @@
 import cv2
 import os
-os.environ['NNPACK'] = '0'  # Отключаем NNPACK
+import matplotlib.pyplot as plt
 import time
 import numpy as np
 from imageai.Detection import ObjectDetection
 from threading import Thread
 import requests
 import json
-from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, url_a, url_l, urlD, log_e, pass_e, managers_chats_id, service_chats_id, AppId
+from some import API_KEY, pgdb, pguser, pgpswd, pghost, pgport, pgschema, url_a, url_l, urlD, log_e, pass_e, managers_chats_id, service_chats_id, AppId, login_Analog, pass_Analog, login_Ip, pass_Ip, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, RTSP_URLS
+import sys
 
-import logging
-logger = logging.getLogger(__name__)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+
+#import logging
+#logger = logging.getLogger(__name__)
+
+#logging.basicConfig(
+#    level=logging.INFO,
+#    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+#)
+
+
+
+
 
 
 from io import BytesIO
@@ -37,11 +44,33 @@ from torch.serialization import _load
 
 
 
+#os.environ['NNPACK'] = '0'
 
 
-import warnings
-warnings.filterwarnings("ignore", module="torch.nn.quantized")
 
+
+import ctypes
+import logging
+
+# Отключение вывода stderr
+libc = ctypes.CDLL("libc.so.6")
+STDOUT = 1
+STDERR = 2
+
+def suppress_stderr():
+    sys.stderr = open(os.devnull, "w")  # Перенаправляем stderr в /dev/null
+    libc.dup2(sys.stderr.fileno(), STDERR)  # Заменяем дескриптор
+
+# Возобновление вывода stderr
+def unsuppress_stderr():
+    sys.stderr.close()
+    sys.stderr = sys.__stderr__  # Восстанавливаем оригинальный stderr
+    libc.dup2(sys.stderr.fileno(), STDERR)
+    
+    
+    
+    
+    
 
 
 # Переопределяем load, чтобы разрешить unsafe глобалы
@@ -54,8 +83,30 @@ torch._load = unsafe_torch_load
 torch.load = unsafe_torch_load
 
 
-model = YOLO('best.pt')
+# Путь к папке с моделями
+models_folder = "models"
 
+# Перебираем все файлы в папке models
+if False:
+  for model_file in os.listdir(models_folder):
+    if model_file.endswith(".pt"):  # Ищем только .pt файлы
+        model_path = os.path.join(models_folder, model_file)
+        print(f"Загружаем модель: {model_file}")
+        try:
+            model = YOLO(model_path)  # Загружаем модель
+            print(f"Классы модели '{model_file}':")
+            print(model.names)  # Выводим имена классов
+            print("-" * 40)
+        except Exception as e:
+            print(f"Ошибка при загрузке модели {model_file}: {e}")
+            
+
+
+
+suppress_stderr()
+model = YOLO('best.pt')
+unsuppress_stderr()
+print(model.names)
 
 num_classes = 10
 classes = ['Hardhat', 'Mask', 'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest', 'Person', 'Safety Cone', 'Safety Vest', 'machinery', 'vehicle']
@@ -68,20 +119,7 @@ classes = ['Hardhat', 'Mask', 'NO-Hardhat', 'NO-Mask', 'NO-Safety Vest', 'Person
 execution_path = "/home/Aleksandr/nnfame"
 execution_image_path = "/home/Aleksandr/nnfame/img"
 
-RTSP_URLS = [
-    {
-        "name": "Analog",
-        "url": "rtsp://192.168.1.12:554/user=adminn&password=12345q&channel=1&stream=1?.sdp",
-        "weights": 3,
-        "threshold": 0.3
-    },
-    {
-        "name": "IP",
-        "url": "rtsp://192.168.1.56:554/user=admin&password=12345q&channel=1&stream=1?.sdp",
-        "weights": 16,
-        "threshold": 0.3
-    }
-]
+
 
 # Global variables for tracking
 probaility = 30
@@ -92,6 +130,63 @@ PrevDetection = [[], []]
 newCols = [[] for _ in range(len(RTSP_URLS))]
 access_token = ''
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def send_telegram_alert(detected_objects, image_path):
+    """Отправляет уведомление в Telegram с фотографией"""
+    message = "⚠️ Обнаружены нарушения безопасности:\n"
+    for obj in detected_objects:
+        message += f"- {obj}\n"
+    
+    with open("telegram_alerts.log", "a") as log:
+        log.write(f"{datetime.now()}: Sent alert for {message}\n")
+        
+    try:
+        # Отправка текстового сообщения
+        text_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        text_params = {
+            'chat_id': TELEGRAM_CHAT_ID,
+            'text': message
+        }
+        requests.post(text_url, data=text_params)
+        
+        # Отправка фотографии
+        photo_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        with open(image_path, 'rb') as photo:
+            files = {'photo': photo}
+            data = {'chat_id': TELEGRAM_CHAT_ID}
+            requests.post(photo_url, files=files, data=data)
+            
+        print("Уведомление отправлено в Telegram")
+        
+    except Exception as e:
+        print(f"Ошибка при отправке в Telegram: {e}")
+    
+    
+    
+    
+    
+    
+    
+    
+    
+      
+      
 # Function to check and create columns in the database
 def checkAndCreateColumn(index, nameCol):
     global structable, newCols
@@ -160,6 +255,19 @@ def fixStatistic(index, maxPerson, statObj):
 
 # Function to process each video stream
 
+
+def is_intersecting(box1, box2):
+    """Проверяет пересекаются ли два bounding box'а"""
+    x1_min, y1_min, x1_max, y1_max = box1
+    x2_min, y2_min, x2_max, y2_max = box2
+    
+    # Проверяем пересечение по осям X и Y
+    x_intersection = x1_max >= x2_min and x2_max >= x1_min
+    y_intersection = y1_max >= y2_min and y2_max >= y1_min
+    
+    return x_intersection and y_intersection
+    
+    
 def process_stream(index, rtsp_url, weights, threshold, d_cam):
     global maxPerson, statObj, startPoint, PrevDetection, newCols, access_token
     
@@ -181,95 +289,136 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
         # Стандартный RTSP поток (как в исходном коде)
         stream_url = f"{rtsp_url}{d_cam}" if d_cam != 0 else rtsp_url
         
-    print(f"[Поток {index}-#{d_cam}] Попытка открыть: {stream_url}")
+    print(f"[Поток {index}-#{d_cam}] Попытка открыть: {stream_url}"+"\n\n")
+
+
+
+
 
     cap = cv2.VideoCapture(stream_url)
+    last_cap_time = time.time()
     if not cap.isOpened():
         print(f"Failed to open stream {stream_url}")
         return
 
+    cap.set(cv2.CAP_PROP_POS_AVI_RATIO, 1)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Уменьшаем размер буфера
+    cap.set(cv2.CAP_PROP_FPS, 10)  # Устанавливаем разумный FPS
+    cap.set(cv2.CAP_PROP_LOW_LATENCY, 1) 
+        
+        
     while True:
-        ret, frame = cap.read()
+    
+        if time.time() - last_cap_time > 30:  # Каждые 30 секунд
+            cap.release()
+            cap = cv2.VideoCapture(stream_url)
+            cap.set(cv2.CAP_PROP_POS_AVI_RATIO, 1)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Уменьшаем размер буфера
+            cap.set(cv2.CAP_PROP_FPS, 10)  # Устанавливаем разумный FPS
+            cap.set(cv2.CAP_PROP_LOW_LATENCY, 1) 
+            last_cap_time = time.time()
+    
+        # Очищаем буфер кадров
+        for _ in range(2):  # Пропускаем несколько кадров
+          if not cap.grab():
+            print("Ошибка grab()")
+            break
+        
+        # Получаем актуальный кадр
+        ret, frame = cap.retrieve()
+        
         if not ret:
             print(f"Failed to read frame from stream {stream_url}")
             time.sleep(5)  # Пауза перед повторной попыткой
             continue
                 
         way1 = os.path.join(execution_image_path, f'image_{index}_{d_cam}.png')
-        way2 = os.path.join(execution_image_path, f'image_{index}_{d_cam}_new.png')
-            
+        
         cv2.imwrite(way1, frame, [cv2.IMWRITE_PNG_COMPRESSION, 1])
 
-        try:
-            img = Image.open(way1) 
-            img.verify()  
-            print("Файл в порядке")
-        except Exception as e:
-            print("Файл повреждён:", e)
+        if False:
             try:
                 img = Image.open(way1) 
-                img.save(way1)
-                print("Файл сохранен")
-            except Exception as e2:
-                print("Файл не исправен:", e2)
-                time.sleep(5)
-                continue
+                img.verify()  
+                #print("Файл в порядке")
+            except Exception as e:
+                print("Файл повреждён:", e)
+                try:
+                    img = Image.open(way1) 
+                    img.save(way1)
+                    print("Файл сохранен")
+                except Exception as e2:
+                    print("Файл не исправен:", e2)
+                    time.sleep(5)
+                    continue
 
-        print('writed 1 ', way1)
+        #print('writed 1 ', way1)
         
-        # Используем YOLO для детекции
         try:
-            results = model.predict(source=way1, save=True, save_txt=True)
-            
-            # Обрабатываем результаты YOLO
+            results = model.predict(source=way1, save=True, save_txt=True,  project=execution_image_path, name='detection_output',  exist_ok=True )
+            way2 = os.path.join(execution_image_path, 'detection_output',f'image_{index}_{d_cam}.png')
             detections = []
+            violations = [] 
+            persons = []
             for result in results:
-                for box in result.boxes:
-                    class_id = int(box.cls)
-                    confidence = float(box.conf)
-                    bbox = box.xyxy[0].tolist()
-                    
-                    detection = {
-                        "name": classes[class_id].lower(),
-                        "percentage_probability": confidence * 100,
-                        "box_points": bbox
-                    }
-                    detections.append(detection)
+                boxes = result.boxes  # Это объект Boxes
+                if boxes is not None:
+                    for box in boxes:
+                        # Конвертируем координаты в список чисел
+                        bbox = box.xyxy.cpu().numpy().astype(int).tolist()[0]
+                        conf = float(box.conf.cpu().numpy()[0])
+                        cls_id = int(box.cls.cpu().numpy()[0])
+
+                        obj_name = classes[cls_id]
+                        detection = {
+                            "name": obj_name,
+                            "percentage_probability": conf * 100,
+                            "box_points": bbox
+                        }
+                        
+                        if obj_name in ['NO-Hardhat', 'NO-Safety Vest']:
+                            violations.append(obj_name)
+                        
+                        if obj_name == 'Person':
+                            persons.append(bbox)
+                            
+                        detections.append(detection)
+
+
+
+            real_violations = []
+            for violation_type, violation_box in violations:
+                for person_box in persons:
+                    if is_intersecting(violation_box, person_box):
+                        real_violations.append(f"{violation_type} (на человеке)")
+                        break  # Достаточно одного пересечения
             
-            print('writed 2 ', way2)
-   
-            for eachObject in detections:
-                print(eachObject["name"], " : ", eachObject["percentage_probability"], " : ", eachObject["box_points"])
-                print("--------------------------------")
-                if eachObject["name"] != 'person':  # Обратите внимание на регистр
-                    checkAndCreateColumn(index, eachObject["name"])
-
-            file_content = get_file(file_path=way2, as_png=False)
-            image = iterm_show_file(way2, data=file_content, inline=True, height=None)
+            # Отправляем уведомление только о реальных нарушениях
+            if real_violations:
+                # Отправляем уведомление
+                send_telegram_alert(violations, way2)
+        
+            if detections:
+                #print("Объекты найдены!!! -------------------------------")
+                
+                #image = Image.open(way2)
+                #plt.imshow(image)
+                #plt.grid(False)
+                #plt.show()
+                
+                file_content = get_file(file_path=way2, as_png=True)
+                image=iterm_show_file(way2, data=file_content, inline=True, height=50)
             
-            filtered_data_cur = [item for item in detections if item['name'] == 'person']
-            personCount = len(filtered_data_cur)
-
-            if PrevDetection[index]:
-                diffStat = compare_persons(PrevDetection[index], filtered_data_cur)
-                if diffStat > 0:
-                    statObj[index] *= (1 - (diffStat / personCount))
-
-            if maxPerson[index] < personCount:
-                maxPerson[index] = personCount
-
-            total_time = time.time() - startPoint[index]
-            if total_time > (60 * 5):  # every 5 minutes
-                fixStatistic(index, maxPerson[index], statObj[index])
-                startPoint[index] = time.time()
-                maxPerson[index] = 0
-                statObj[index] = 1
-
-            PrevDetection[index] = detections
+                
+            
+            
 
         except Exception as e:
             print(f"Ошибка при обработке изображения: {e}")
-        
+
+
+
+
         time.sleep(5)
         
 
@@ -517,7 +666,6 @@ def checkAndCreateList():
 
 
 
-# Main function to initialize and start processing threads
 def main():
     global access_token, listId, structable
 
@@ -526,18 +674,9 @@ def main():
         exit()
 
     threads = []
-    for rtsp_info in RTSP_URLS:
-    
-      if True:
-          thread = Thread(
-                target=process_stream,
-                args=(rtsp_info["name"], rtsp_info["url"], rtsp_info["weights"], rtsp_info["threshold"], "")
-            )
-          thread.start()
-          threads.append(thread)
-          
-      if True:  
-       for d in range(rtsp_info["weights"]):
+    for rtsp_info in RTSP_URLS:  
+       #for d in range(rtsp_info["weights"]):
+       for d in (rtsp_info["viwes"]):
         thread = Thread(
             target=process_stream,
             args=(rtsp_info["name"], rtsp_info["url"], rtsp_info["weights"], rtsp_info["threshold"], d)
@@ -547,6 +686,12 @@ def main():
 
     for thread in threads:
         thread.join()
+        
+    if False:
+        print('threading.active_count()',threading.active_count())   
+        while threading.active_count() > 1:
+            print('threading.active_count()',threading.active_count())
+            time.sleep(30)
 
 if __name__ == "__main__":
     main()
