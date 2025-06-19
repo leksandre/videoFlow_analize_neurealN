@@ -151,6 +151,7 @@ def send_telegram_alert(detected_objects, image_path, image_path_orig):
     """Отправляет уведомление в Telegram с фотографией"""
     message = "⚠️ Обнаружены нарушения безопасности:\n"
     for obj in detected_objects:
+        obj1 = obj["name"]
         message += f"- {obj}\n"
     
     with open("telegram_alerts.log", "a") as log:
@@ -185,7 +186,31 @@ def send_telegram_alert(detected_objects, image_path, image_path_orig):
     
     
     
+def get_latest_file(execution_image_path, index, d_cam):
+    detection_dir = os.path.join(execution_image_path, 'detection_output')
     
+    # Проверяем, существует ли папка
+    if not os.path.exists(detection_dir):
+        return None
+
+    # Шаблон имени файла: image_{index}_{d_cam}
+    target_prefix = f'image_{index}_{d_cam}'
+
+    # Ищем все файлы, начинающиеся с этого префикса
+    files = [
+        os.path.join(detection_dir, f) for f in os.listdir(detection_dir)
+        if f.startswith(target_prefix)
+    ]
+
+    # Фильтруем только файлы (не папки) и сортируем по времени изменения
+    files = [f for f in files if os.path.isfile(f)]
+    
+    if not files:
+        return None  # Файлы не найдены
+
+    # Возвращаем самый свежий файл
+    latest_file = max(files, key=os.path.getmtime)
+    return latest_file
     
     
     
@@ -265,11 +290,22 @@ def is_intersecting(box1, box2):
     x1_min, y1_min, x1_max, y1_max = box1
     x2_min, y2_min, x2_max, y2_max = box2
     
-    # Проверяем пересечение по осям X и Y
-    x_intersection = x1_max >= x2_min and x2_max >= x1_min
-    y_intersection = y1_max >= y2_min and y2_max >= y1_min
+    # Проверка пересечения по оси X
+    if max(x1_min, x2_min) > min(x1_max, x2_max):
+        return False
     
-    return x_intersection and y_intersection
+    # Проверка пересечения по оси Y
+    if max(y1_min, y2_min) > min(y1_max, y2_max):
+        return False
+    
+    # Если обе проверки пройдены, прямоугольники пересекаются
+    return True
+
+    # Проверяем пересечение по осям X и Y
+    #x_intersection = x1_max >= x2_min and x2_max >= x1_min
+    #y_intersection = y1_max >= y2_min and y2_max >= y1_min
+    
+    #return x_intersection and y_intersection
     
     
 def process_stream(index, rtsp_url, weights, threshold, d_cam):
@@ -326,7 +362,7 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
             last_cap_time = time.time()
         #print(f"111\n\n")
         # Очищаем буфер кадров
-        for _ in range(50):  # Пропускаем несколько кадров
+        for _ in range(20):  # Пропускаем несколько кадров
           if not cap.grab():
             #print("Ошибка grab()")
             continue
@@ -363,7 +399,14 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
         #print(f"333\n\n")
         try:
             results = model.predict(source=way1, save=True, save_txt=True,  project=execution_image_path, name='detection_output',  exist_ok=True )
-            way2 = os.path.join(execution_image_path, 'detection_output',f'image_{index}_{d_cam}.png')
+            
+            way2 = get_latest_file(execution_image_path, index, d_cam)
+            if way2:
+                #print("Найден последний файл:", way2)
+                pass
+            else:
+                way2 = os.path.join(execution_image_path, 'detection_output', f'image_{index}_{d_cam}.jpg')
+                
             detections = []
             violations = [] 
             persons = []
@@ -385,19 +428,20 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
                         }
                         
                         if obj_name in ['NO-Hardhat', 'NO-Safety Vest']:
-                            violations.append(obj_name)
+                            violations.append(detection)
                         
                         if obj_name == 'Person':
-                            persons.append(bbox)
+                            persons.append(detection)
                             
                         detections.append(detection)
 
 
 
             real_violations = []
-            for violation_type, violation_box in violations:
+            for violation_box in violations:
                 for person_box in persons:
-                    if is_intersecting(violation_box, person_box):
+                    if is_intersecting(violation_box['box_points'], person_box['box_points']):
+                        violation_type = violation_box['name']
                         real_violations.append(f"{violation_type} (на человеке)")
                         break  # Достаточно одного пересечения
             
@@ -414,8 +458,9 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
                 #plt.grid(False)
                 #plt.show()
                 
-                file_content = get_file(file_path=way2, as_png=True)
-                image=iterm_show_file(way2, data=file_content, inline=True, height=50)
+                if False:
+                    file_content = get_file(file_path=way2, as_png=True)
+                    image=iterm_show_file(way2, data=file_content, inline=True, height=50)
             
                 
             
@@ -670,6 +715,21 @@ def checkAndCreateList():
 
             
 
+def restartable_thread(target, args=()):
+    """Функция, которая перезапускает поток при его завершении"""
+    #print(f"пытаюсь запустить поток 0 : ")
+    def wrapper():
+        #print(f"пытаюсь запустить поток 1 : ")
+        while True:
+            #print(f"пытаюсь запустить поток 2 : ")
+            try:
+                #print(f"пытаюсь запустить поток Старт: ")
+                target(*args)
+            except Exception as e:
+                print(f"[Ошибка в потоке] {e}. Перезапуск через 30 секунд...")
+                time.sleep(30)
+    thread = Thread(target=wrapper, daemon=True)
+    return thread
 
 
 
@@ -685,21 +745,40 @@ def main():
     for rtsp_info in RTSP_URLS:  
        #for d in range(rtsp_info["weights"]):
        for d in (rtsp_info["viwes"]):
-        thread = Thread(
+       
+       # thread = Thread(
+       #     target=process_stream,
+       #     args=(rtsp_info["name"], rtsp_info["url"], rtsp_info["weights"], rtsp_info["threshold"], d)
+       # )
+       
+        name = rtsp_info["name"]
+        url = rtsp_info["url"]
+        weights = rtsp_info["weights"]
+        threshold = rtsp_info["threshold"]
+        thread = restartable_thread(
             target=process_stream,
-            args=(rtsp_info["name"], rtsp_info["url"], rtsp_info["weights"], rtsp_info["threshold"], d)
+            args=(name, url, weights, threshold, d)
         )
+        
         thread.start()
         threads.append(thread)
 
     for thread in threads:
         thread.join()
         
-    if False:
-        print('threading.active_count()',threading.active_count())   
-        while threading.active_count() > 1:
-            print('threading.active_count()',threading.active_count())
-            time.sleep(30)
 
+
+    # Бесконечный цикл, чтобы основной поток не завершался
+    try:
+      while True:
+        print('threading.active_count() ',threading.active_count())   
+        while threading.active_count() > 1:
+            print('threading.active_count() ',threading.active_count())
+            time.sleep(30)
+    except KeyboardInterrupt:
+        print("Остановка программы.")
+        
+        
+        
 if __name__ == "__main__":
     main()

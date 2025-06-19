@@ -46,8 +46,8 @@ def iterm_show_file(filename, data=None, inline=True, width="auto", height="auto
         filename=to_native(b64encode(to_binary(filename))), 
         size=len(data_bytes), 
         inline=1 if inline else 0,
-        width=str("50"),
-        height=str("50"),
+        width=str("30"),
+        height=str("30"),
         data=to_native(b64encode(data_bytes)),
     )
     sys.stdout.write(output)
@@ -64,7 +64,7 @@ def monitor_images():
         try:
             # Получаем список PNG-файлов, измененных за последние 10 секунд
             files = [f for f in os.listdir(image_dir) 
-                    if f.endswith('.png') and 
+                    if (f.endswith('.png') or f.endswith('.jpg')) and 
                     now - os.path.getmtime(os.path.join(image_dir, f)) <= 10]
             
             # Выводим только новые файлы
