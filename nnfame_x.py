@@ -419,7 +419,6 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
                         bbox = box.xyxy.cpu().numpy().astype(int).tolist()[0]
                         conf = float(box.conf.cpu().numpy()[0])
                         cls_id = int(box.cls.cpu().numpy()[0])
-
                         obj_name = classes[cls_id]
                         detection = {
                             "name": obj_name,
@@ -428,9 +427,13 @@ def process_stream(index, rtsp_url, weights, threshold, d_cam):
                         }
                         
                         if obj_name in ['NO-Hardhat', 'NO-Safety Vest']:
+                            if conf<0.5:
+                                continue
                             violations.append(detection)
                         
                         if obj_name == 'Person':
+                            if conf<0.7:
+                                continue
                             persons.append(detection)
                             
                         detections.append(detection)

@@ -5,7 +5,7 @@ from telegram.error import TimedOut, NetworkError
 import requests
 import time
 import asyncio
-from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN
+from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT
 
 # === Логирование ===
 logging.basicConfig(
@@ -33,7 +33,7 @@ def get_gigachat_token():
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
             'RqUID': '86921efa-c9de-40fe-8086-8a7379a0f516',
-            'Authorization': 'Basic '+str(GGC_TOKEN)
+            'Authorization': GGC_TOKEN
         }
 
         response = requests.post(auth_url, headers=auth_headers, data=auth_payload, verify=False)
@@ -67,7 +67,7 @@ def get_gpt_response(prompt):
             "model": "GigaChat",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.7,
-            "max_tokens": 1000
+            "max_tokens": 5000
         }
 
         response = requests.post(chat_url, headers=chat_headers, json=chat_payload, verify=False)
@@ -104,10 +104,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             action="typing"
         )
         
+        full_prompt = f"""{SYSTEM_PROMPT}
+        Контекст:
+        {CONTEXT_TEXT}
+        
+        Вопрос: {user_text}
+        
+        Ответ:"""
+        
         # Увеличиваем таймаут для запроса к GigaChat
         try:
             reply_text = await asyncio.wait_for(
-                asyncio.to_thread(get_gpt_response, user_text),
+                asyncio.to_thread(get_gpt_response, full_prompt),
                 timeout=300  # 5 минут на выполнение запроса
             )
         except asyncio.TimeoutError:
