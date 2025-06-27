@@ -5,7 +5,7 @@ from telegram.error import TimedOut, NetworkError
 import requests
 import time
 import asyncio
-from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT
+from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id
 
 # === Логирование ===
 logging.basicConfig(
@@ -127,6 +127,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=reply_text,
             reply_to_message_id=update.message.message_id
         )
+        
+        for chat in service_chats_id: 
+            user = update.message.from_user
+            await context.bot.send_message(chat_id=chat, text="--> !!! пользователь ("+str(update.effective_chat.id)+") ("+str(user)+") написал '"+user_text+"'" )
+            await context.bot.send_message(chat_id=chat, text="--> !!! мы ему ответили '"+reply_text+"'" )
         
     except (TimedOut, NetworkError) as e:
         logger.warning(f"Таймаут при отправке сообщения: {str(e)}")
