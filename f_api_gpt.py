@@ -1,17 +1,12 @@
-import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
-from telegram.error import TimedOut, NetworkError
+from fastapi import FastAPI, HTTPException
+import uvicorn
 import requests
-import time
 import asyncio
-from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, TOKEN_FILE, CERT_PATH
-
-import json
 import os
-from datetime import datetime
-
-
+import json
+import time
+import logging
+from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, TOKEN_FILE, CERT_PATH
 
 
 # === Логирование ===
@@ -21,13 +16,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Глобальные переменные для кэширования токена
-cached_token = None
-token_expires_at = 0
+app = FastAPI()
 
-
-
-
+# === Получение токена GigaChat с кэшированием ===
 
 
 def get_gigachat_token():
@@ -97,6 +88,9 @@ def save_token_to_file(token_data):
     except Exception as e:
         logger.error(f"Не удалось сохранить токен в файл: {str(e)}")
 
+
+# === Запрос к GigaChat API ===
+
 def get_gpt_response(prompt):
     try:
         # Получаем токен (из кэша или новый)
@@ -141,84 +135,58 @@ def get_gpt_response(prompt):
         return "Произошла непредвиденная ошибка."
         
         
-        
-# ... (остальной код бота остается без изменений)
 
+# === Отправка логов в Telegram ===
+async def send_telegram_log(chat_id: str, question: str, answer: str, user_info: dict = None):
+    from telegram import Bot
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# === Команды бота ===
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Привет! Задай мне вопрос по компании Дом Отель.")
+    user_text = f"{user_info.get('id')} ({user_info.get('username')})" if user_info else "неизвестный пользователь"
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    log_message_1 = f"\\\\\\\\\  пользователь ({user_text}) написал '{question}'"
+    log_message_2 = f"\\\\\\\\\  мы ему ответили '{answer}'"
+
     try:
-        user_text = update.message.text
-        logger.info(f"Получен запрос от пользователя: {user_text}")
-        
-        # Показываем статус "печатает" пока ждем ответ
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id,
-            action="typing"
-        )
-        
-        full_prompt = f"""{SYSTEM_PROMPT}
-        Контекст:
-        {CONTEXT_TEXT}
-        
-        Вопрос: {user_text}
-        
-        Ответ:"""
-        
-        # Увеличиваем таймаут для запроса к GigaChat
-        try:
-            reply_text = await asyncio.wait_for(
-                asyncio.to_thread(get_gpt_response, full_prompt),
-                timeout=300  # 5 минут на выполнение запроса
-            )
-        except asyncio.TimeoutError:
-            logger.warning("Превышено время ожидания ответа от GigaChat")
-            reply_text = "Извините, обработка запроса заняла слишком много времени. Попробуйте позже."
-        
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=reply_text,
-            reply_to_message_id=update.message.message_id
-        )
-        
-        for chat in service_chats_id: 
-            user = update.message.from_user
-            await context.bot.send_message(chat_id=chat, text="--> !!! пользователь ("+str(update.effective_chat.id)+") ("+str(user)+") написал '"+user_text+"'" )
-            await context.bot.send_message(chat_id=chat, text="--> !!! мы ему ответили '"+reply_text+"'" )
-        
-    except (TimedOut, NetworkError) as e:
-        logger.warning(f"Таймаут при отправке сообщения: {str(e)}")
-        await asyncio.sleep(1)
-        await handle_message(update, context)  # Повторная попытка
+        async with bot:
+            await bot.send_message(chat_id=chat_id, text=log_message_1)
+            await bot.send_message(chat_id=chat_id, text=log_message_2)
     except Exception as e:
-        logger.error(f"Неожиданная ошибка: {str(e)}")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Произошла ошибка. Пожалуйста, попробуйте позже."
-        )
+        logger.error(f"Не удалось отправить сообщение в чат {chat_id}: {str(e)}")
 
-# === Запуск бота с увеличенными таймаутами ===
-if __name__ == '__main__':
+# === Эндпоинт API для обработки вопроса ===
+@app.post("/api/ask")
+async def ask_gigachat(data: dict):
+    question = data.get("question")
+    if not question:
+        raise HTTPException(status_code=400, detail="Вопрос не указан")
+
+    logger.info(f"Получен вопрос: {question}")
+
+    full_prompt = f"""{SYSTEM_PROMPT}
+    Контекст:
+    {CONTEXT_TEXT}
+
+    Вопрос: {question}
+
+    Ответ:"""
+
+    loop = asyncio.get_event_loop()
     try:
-        application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).read_timeout(60).write_timeout(60).pool_timeout(60).get_updates_read_timeout(60).build()
+        answer = await loop.run_in_executor(None, get_gpt_response, full_prompt)
 
-        start_handler = CommandHandler('start', start)
-        message_handler = MessageHandler(
-            filters.TEXT & (~filters.COMMAND),
-            handle_message
-        )
+        # Отправляем логи в Telegram
+        user_info = {"id": "API", "username": "web"}
+        for chat in service_chats_id:
+            await send_telegram_log(chat, question, answer, user_info)
+            
+        logger.info(f"Сгенерирован ответ: {answer}")
+        return {"answer": answer}
 
-        application.add_handler(start_handler)
-        application.add_handler(message_handler)
-
-        logger.info("Бот запущен с увеличенными таймаутами")
-        application.run_polling(
-            poll_interval=3.0,  # Интервал опроса сервера
-            timeout=60,         # Таймаут long polling
-            drop_pending_updates=True
-        )
     except Exception as e:
-        logger.error(f"Ошибка в основном цикле: {str(e)}")
+        logger.error(f"Ошибка при генерации ответа: {str(e)}")
+        raise HTTPException(status_code=500, detail="Ошибка при генерации ответа")
+        
+        
+# === Запуск FastAPI ===
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=5000)
