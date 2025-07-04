@@ -12,7 +12,8 @@ import os
 from datetime import datetime
 
 
-
+# Глобальный словарь для хранения истории чатов
+chat_history = {}
 
 # === Логирование ===
 logging.basicConfig(
@@ -152,6 +153,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_text = update.message.text
+        chat_id = update.effective_chat.id
+        
+        # Получаем текущую дату и время
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Инициализируем историю чата, если её ещё нет
+        if chat_id not in chat_history:
+            chat_history[chat_id] = []
+            
+        chat_history[chat_id].append({
+            "role": "user",
+            "content": user_text,
+            "timestamp": current_time
+        })
+         
+        history_prompt = "\n".join(
+            f"[{msg['timestamp']}] {msg['role']}: {msg['content']}"
+            for msg in chat_history[chat_id][-10:]  # Берем последние 10 сообщений
+        )
+        
         logger.info(f"Получен запрос от пользователя: {user_text}")
         
         # Показываем статус "печатает" пока ждем ответ
@@ -164,7 +185,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         Контекст:
         {CONTEXT_TEXT}
         
-        Вопрос: {user_text}
+        История чата:
+        {history_prompt}
+        
+        Текущий вопрос: {user_text}
         
         Ответ:"""
         
@@ -177,6 +201,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except asyncio.TimeoutError:
             logger.warning("Превышено время ожидания ответа от GigaChat")
             reply_text = "Извините, обработка запроса заняла слишком много времени. Попробуйте позже."
+
+        
+        # Добавляем ответ бота в историю
+        chat_history[chat_id].append({
+            "role": "assistant",
+            "content": reply_text,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        })
         
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
