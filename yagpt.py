@@ -5,8 +5,9 @@ from telegram.error import TimedOut, NetworkError
 import requests
 import time
 import asyncio
-from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, TOKEN_FILE, CERT_PATH
+from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, TOKEN_FILE, CERT_PATH, SPAM_DETECTION_PROMPT
 
+import re
 import json
 import os
 from datetime import datetime
@@ -28,6 +29,218 @@ token_expires_at = 0
 
 
 
+def is_spam_by_keywords(text: str) -> bool:
+    """
+    Быстрая проверка на спам по ключевым словам и паттернам.
+    Возвращает True, если текст — спам.
+    """
+    if not text or len(text.strip()) == 0:
+        return False
+
+    text_lower = text.lower().strip()
+    text_no_spaces = re.sub(r'\s+', '', text_lower)  # Для обхода "с л о в а"
+    text_cleaned = re.sub(r'[^\w\s]', ' ', text_lower)  # Убираем знаки препинания
+
+    # === 1. Проверка на подозрительные слова ===
+    spam_keywords = [
+        # Реклама / офферы
+         'заработать', 'заработок',  'выиграть', 'выигрыш',
+        'казино', 'ставки', 'крипто', 'инвестиции', 'инвестировать',
+        'капуста', 'инвест',
+        # Ссылки
+        'http', 'https', 't.me/', 'ссылка', 'перейди по ссылке', 'перейти по',
+        'сайт', 'сайта', 'ссылочку', 'ссылочку', 'ссылочку',
+        # Рефералки / партнёрки
+        'реферал', 'партнёрка', 'партнерка', 'доход', 'доход с',
+        'вывести деньги', 'вывод денег', 'вывод', 'выведение',
+        # Подозрительные слова
+        'регистрация', 'акция', 'акция!', 'подарок', 'подарки',
+        'только сегодня', 'ограниченное время', 'специально для вас',
+        'ты выиграл', 'ты победил', 'поздравляем', 'премия',
+        # Слова, связанные с рассылкой
+        'рассылка', 'рассылку', 'всем', 'всем!', 'всем в группу',
+        # Слова, связанные с "работать на нас"
+        'работа', 'удалёнка', 'на дому', 'за компом', 'работа на дому',
+        # Телеграм-каналы / боты
+        '@', 'бот', 'канал', 'чат', 'чатик', 'группа', 'группу',
+    ]
+
+#     for word in spam_keywords:
+#         if word in text_lower:
+#             return True
+
+    # === 2. Проверка на "обход слов" вида "с л о в о" ===
+    for word in ['казино', 'инвестиции', 'заработать', 'выигрыш', 'крипто']:
+        if word in text_no_spaces:
+            return True
+
+    # === 3. Проверка на подозрительные паттерны ===
+    patterns = [
+#         r'(?:http[s]?://|www\.)[^\s]+',      # Ссылки
+#         r'(?:t\.me/|@)[a-zA-Z0-9_]+',        # Telegram-ссылки
+#         r'[!?.]{5,}',                         # Много знаков подряд: !!!!! или ???????
+#         r'[а-яё]{6,}',                        # Очень длинные русские слова (возможно, мусор)
+#         r'\d{8,}',                            # Длинные числа (номера, счета)
+        r'[^\w\s]{4,}',                       # Много специальных символов подряд: !@#$%^&*
+        r'(?:капуста|казино|крипто|инвест)\w*',  # Улучшенная проверка слов через regex
+    ]
+    for pattern in patterns:
+        if re.search(pattern, text_lower):
+            return True
+
+    # === 4. Проверка на слишком много смайлов ===
+    emoji_pattern = re.compile(
+        r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF]+',
+        flags=re.UNICODE
+    )
+    emojis = emoji_pattern.findall(text)
+    if len(emojis) > 15:  # Если больше 15 смайлов
+        return True
+
+    # === 5. Проверка на "капс" ===
+    if text.isupper() and len(text) > 10:
+        return True
+
+    # === 6. Проверка на слишком короткие/бессмысленные сообщения ===
+#     words = text_cleaned.split()
+#     if len(words) <= 2 and any(len(word) < 3 for word in words if word.isalpha()):
+#         # Например: "hi", "ok", "ааа", "!!!"
+#         return True
+
+    # === 7. Проверка на "спам-фразы" ===
+    spam_phrases = [
+        'только сегодня',
+        'успей купить',
+        'ограниченное предложение',
+        'ты выиграл',
+        'поздравляем',
+        'регистрация по ссылке',
+        'перейди по ссылке',
+        'ссылка в профиле',
+        'напиши мне',
+        'пиши в личку',
+        'пиши сюда',
+        'тут можно',
+        'тут выиграть',
+        'работа на дому',
+        'заработай быстро',
+        'кликни сюда',
+        'кликни здесь',
+        'всем расскажу',
+        'всем раздам',
+        'всем бесплатно',
+        'всем подарок',
+        'только для вас',
+        'специально для вас',
+        'только сейчас',
+        'уникальное предложение',
+        'только для подписчиков',
+        'только для участников',
+        'только для друзей',
+        'только для админов',
+        'только для группы',
+        'только для канала',
+        'только для бота',
+        'только для чата',
+        'только для лички',
+        'только для рефералов',
+        'только для партнёров',
+        'только для инвесторов',
+        'только для клиентов',
+        'только для сотрудников',
+        'только для друзей',
+        'только для семьи',
+        'только для знакомых',
+        'только для друзей',
+        'только для подписчиков',
+        'только для админов',
+        'только для модераторов',
+        'только для админов',
+        'только для группы',
+        'только для чата',
+        'только для канала',
+        'только для бота',
+        'только для лички',
+        'только для рефералов',
+        'только для партнёров',
+        'только для инвесторов',
+        'только для клиентов',
+        'только для сотрудников',
+        'только для друзей',
+        'только для семьи',
+        'только для знакомых',
+        'только для друзей',
+        'только для подписчиков',
+        'только для админов',
+        'только для модераторов',
+    ]
+
+    for phrase in spam_phrases:
+        if phrase in text_lower:
+            return True
+
+    # === 8. Проверка на слишком много ссылок (даже вида "https : // ...") ===
+#     if text_lower.count('http') > 2 or text_lower.count('t.me') > 2:
+#         return True
+
+    # === 9. Проверка на "мусорные" символы ===
+    # Если текст содержит много бессмысленных символов
+#     non_alpha_ratio = len(re.findall(r'[^a-zA-Zа-яА-ЯёЁ0-9\s]', text)) / len(text)
+#     if non_alpha_ratio > 0.4:  # Если больше 40% — мусор
+#         return True
+
+    # === 10. Проверка на "длинные числа" (номера/счёта) ===
+#     if re.search(r'\b\d{8,}\b', text):  # Например, 12345678
+#         return True
+
+    return False
+
+def is_spam_via_gigachat(text: str) -> bool:
+    if not text or not text.strip():
+        logger.info(f"проверка на спам - нет текста " + str(text))
+        return False
+
+    full_prompt = SPAM_DETECTION_PROMPT + text.strip()
+
+#     logger.info(f"full_prompt {full_prompt}")
+    logger.info(f"str(text) {str(text)}")
+    try:
+        # Используем уже существующую функцию запроса
+        response = get_gpt_response(full_prompt)
+
+
+#         response = await asyncio.wait_for(
+#             asyncio.to_thread(get_gpt_response, full_prompt),
+#             timeout=300  # 5 минут на выполнение запроса
+#         )
+
+
+
+        logger.info(f"проверка на спам бот говорит {response}")
+
+
+        # Нормализуем ответ: убираем пробелы, приводим к нижнему регистру
+        clean_response = response.strip().lower()
+
+        logger.info(f"проверка 2 на спам бот говорит {clean_response}")
+
+        # Извлекаем первое слово (на случай, если ИИ напишет пояснение)
+        first_word = re.split(r'\s+', clean_response)[0]
+
+        logger.info(f"проверка first_word {first_word}")
+
+#         for chat in service_chats_id:
+#             await context.bot.send_message(chat_id=chat, text="--> !!! проверка на спам от пользователь написал '"+str(text)+"' бот говорит что - "+str(response)
+#             #, parse_mode="HTML"
+#             )
+
+
+        return first_word == "спам"
+
+    except Exception as e:
+        logger.warning(f"Ошибка при проверке спама через GigaChat: {str(e)}")
+        # На случай ошибки — лучше не банить (консервативно)
+        return False
 
 
 
@@ -142,8 +355,113 @@ def get_gpt_response(prompt):
         return "Произошла непредвиденная ошибка."
         
         
-        
-# ... (остальной код бота остается без изменений)
+
+
+async def process_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        message_id = update.message.message_id
+        user_text = update.message.text
+        chat_type = update.effective_chat.type
+
+        user = update.message.from_user
+
+        if chat_type not in ['group', 'supergroup']: #проеряем спам только в группах]
+            return False
+
+        if not user_text or len(user_text.strip()) == 0:
+            return True
+        # Обрезаем до 500 символов — спам редко бывает длинным
+        user_text = user_text[:500]
+        text = user_text
+        # === Проверка спама через ИИ ===
+        try:
+            if is_spam_by_keywords(text):
+                is_spam_msg = True
+                for chat in service_chats_id:
+                    logger.info(f"СПАМ ОБНАРУЖЕН по ключевым словам '"+str(text)+"' пользователь ("+str(update.effective_chat.id)+") ("+str(user)+") написал '"+user_text+"' ")
+                    await context.bot.send_message(chat_id=chat, text="--> !!! СПАМ обнаружен по ключевым словам '"+str(text)+"' пользователь ("+str(update.effective_chat.id)+") ("+str(user)+") написал '"+user_text+"'"
+                    #, parse_mode="HTML"
+                    )
+            else:
+
+#                 try:
+#                     is_spam_msg = await asyncio.wait_for(
+#                         asyncio.to_thread(is_spam_via_gigachat, user_text),
+#                         timeout=300
+#                     )
+#                 except asyncio.TimeoutError:
+#                     logger.warning("Превышено время ожидания ответа от GigaChat 2")
+#                     is_spam_msg = False
+
+                is_spam_msg = await asyncio.wait_for(
+                    asyncio.to_thread(is_spam_via_gigachat, user_text),
+                    timeout=300
+                )
+
+                if is_spam_msg == True:
+                    for chat in service_chats_id:
+                        logger.info(f"--> !!! проверка на спам -  пользователь ("+str(update.effective_chat.id)+") ("+str(user)+") написал '"+user_text+"' бот говорит что - "+str(is_spam_msg))
+                        await context.bot.send_message(chat_id=chat, text="--> !!! проверка на спам -  пользователь ("+str(update.effective_chat.id)+") ("+str(user)+") написал '"+user_text+"' бот говорит что - "+str(is_spam_msg)
+                        #, parse_mode="HTML"
+                        )
+        except asyncio.TimeoutError:
+            logger.warning("Таймаут при проверке спама")
+            is_spam_msg = False
+
+        if is_spam_msg == True:
+            for chat in service_chats_id:
+                user = update.message.from_user
+                r_text = ""
+            logger.info(f"СПАМ ОБНАРУЖЕН от {user_id} в чате {chat_id}: {user_text}")
+
+            # 1. Удаляем сообщение спамера
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                logger.info(f"Сообщение {message_id} удалено.")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить сообщение: {str(e)}")
+
+
+#             warning_msg = (
+#                 "⚠️ Ваше сообщение похоже на спам. "
+#                 "Пожалуйста, задавайте вопросы по теме компании Дом Отель. "
+#                 "Реклама и офферные предложения запрещены.\n\n"
+#                 "Ваше сообщение удалено, и вы временно забанены на  60 минут."
+#             )
+#             try:
+#                 await context.bot.send_message(
+#                     chat_id=chat_id,
+#                     text=warning_msg
+# #                     ,reply_to_message_id=message_id
+#                 )
+#             except Exception as e:
+#                 logger.warning(f"Не удалось отправить предупреждение: {str(e)}")
+
+
+            try:
+                until_date = int(time.time()) + (60*60)  # 1 минута на 60 минут в часе
+                await context.bot.ban_chat_member(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                    until_date=until_date
+                )
+                logger.info(f"Пользователь {user_id} забанен на 60 минут в чате {chat_id}")
+            except Exception as e:
+                logger.error(f"Не удалось забанить пользователя {user_id}: {str(e)}")
+
+            # 4. Логируем в сервисные чаты
+            for chat in service_chats_id:
+                await context.bot.send_message(
+                    chat_id=chat,
+                    text=f"🚨 СПАМ: пользователь {user_id} забанен на 1 час в группе {chat_id}. Сообщение: '{user_text}'"
+                )
+
+
+            return True
+
+
+        return True
 
 
 # === Команды бота ===
@@ -154,10 +472,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_text = update.message.text
         chat_id = update.effective_chat.id
-        
+
+        user_id = update.effective_user.id
+        message_id = update.message.message_id
+        chat_type = update.effective_chat.type
+
         # Получаем текущую дату и время
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+
+
+
+        have_to_break = await process_spam(update,context)
+
+        if have_to_break:
+            return
+
+
         # Инициализируем историю чата, если её ещё нет
         if chat_id not in chat_history:
             chat_history[chat_id] = []
@@ -214,12 +544,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             text=reply_text,
             reply_to_message_id=update.message.message_id
+            #, parse_mode="HTML"
         )
         
         for chat in service_chats_id: 
             user = update.message.from_user
-            await context.bot.send_message(chat_id=chat, text="--> !!! пользователь ("+str(update.effective_chat.id)+") ("+str(user)+") написал '"+user_text+"'" )
-            await context.bot.send_message(chat_id=chat, text="--> !!! мы ему ответили '"+reply_text+"'" )
+            await context.bot.send_message(chat_id=chat, text="--> !!! пользователь ("+str(update.effective_chat.id)+") ("+str(user)+") написал '"+user_text+"'"
+            #, parse_mode="HTML"
+            )
+            await context.bot.send_message(chat_id=chat, text="--> !!! мы ему ответили '"+reply_text+"'"
+            #, parse_mode="HTML"
+            )
         
     except (TimedOut, NetworkError) as e:
         logger.warning(f"Таймаут при отправке сообщения: {str(e)}")
