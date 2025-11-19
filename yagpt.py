@@ -5,7 +5,7 @@ from telegram.error import TimedOut, NetworkError
 import requests
 import time
 import asyncio
-from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, TOKEN_FILE, CERT_PATH, SPAM_DETECTION_PROMPT
+from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, managers_chats_id, admin_chats_id, TOKEN_FILE, CERT_PATH, SPAM_DETECTION_PROMPT
 
 import re
 import json
@@ -366,8 +366,8 @@ async def process_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user = update.message.from_user
 
-        if chat_type not in ['group', 'supergroup']: #проеряем спам только в группах]
-            return False
+        if chat_type not in ['group', 'supergroup']: #проеряем спам только в группах
+            return False # говорим не прерывать
 
         if not user_text or len(user_text.strip()) == 0:
             return True
@@ -440,13 +440,13 @@ async def process_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
             try:
-                until_date = int(time.time()) + (60*60)  # 1 минута на 60 минут в часе
+                until_date = int(time.time()) + (60*60*6)  # 1 минута на 60 минут в часе на 3 часа
                 await context.bot.ban_chat_member(
                     chat_id=chat_id,
                     user_id=user_id,
                     until_date=until_date
                 )
-                logger.info(f"Пользователь {user_id} забанен на 60 минут в чате {chat_id}")
+                logger.info(f"Пользователь {user_id} забанен на 360 минут в чате {chat_id}")
             except Exception as e:
                 logger.error(f"Не удалось забанить пользователя {user_id}: {str(e)}")
 
@@ -454,14 +454,14 @@ async def process_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for chat in service_chats_id:
                 await context.bot.send_message(
                     chat_id=chat,
-                    text=f"🚨 СПАМ: пользователь {user_id} забанен на 1 час в группе {chat_id}. Сообщение: '{user_text}'"
+                    text=f"🚨 СПАМ: пользователь {user_id} забанен на 6 часов в группе {chat_id}. Сообщение: '{user_text}'"
                 )
 
 
             return True
 
 
-        return True
+        return False #говорим не прерывать
 
 
 # === Команды бота ===
@@ -480,12 +480,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Получаем текущую дату и время
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-
+        if chat_id in managers_chats_id:        #id нашх сотрудников
+            if chat_type not in ['group', 'supergroup']: #проеряем спам только в группах]
+                return False
 
         have_to_break = await process_spam(update,context)
 
         if have_to_break:
             return
+
+
 
 
         # Инициализируем историю чата, если её ещё нет
@@ -539,7 +543,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "content": reply_text,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         })
-        
+        reply_text = reply_text.replace('*', '')
+        reply_text = reply_text.replace('#', '')
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=reply_text,
@@ -562,10 +567,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_message(update, context)  # Повторная попытка
     except Exception as e:
         logger.error(f"Неожиданная ошибка: {str(e)}")
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Произошла ошибка. Пожалуйста, попробуйте позже."
-        )
+        if chat_type not in ['group', 'supergroup']:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Произошла ошибка. Пожалуйста, попробуйте позже."
+            )
+        else:
+            for chat in admin_chats_id:
+                await context.bot.send_message(
+                    chat_id=chat,
+                    text=f"Произошла ошибка: {str(e)}"
+                )
+
 
 # === Запуск бота с увеличенными таймаутами ===
 if __name__ == '__main__':
