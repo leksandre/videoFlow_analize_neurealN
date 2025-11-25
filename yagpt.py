@@ -5,7 +5,7 @@ from telegram.error import TimedOut, NetworkError
 import requests
 import time
 import asyncio
-from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, managers_chats_id, admin_chats_id, TOKEN_FILE, CERT_PATH, SPAM_DETECTION_PROMPT
+from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, managers_chats_id, admin_chats_id, TOKEN_FILE, CERT_PATH, SPAM_DETECTION_PROMPT, RESPONSE_COOLDOWN
 
 import re
 import json
@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 # Глобальные переменные для кэширования токена
 cached_token = None
 token_expires_at = 0
+
+
+chat_history = {}
+last_response_time = {}  # { (chat_id, user_id): timestamp }
 
 
 
@@ -327,7 +331,7 @@ def get_gpt_response(prompt):
             "model": "GigaChat",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.7,
-            "max_tokens": 5000
+            "max_tokens": 400
         }
 
         response = requests.post(
@@ -461,7 +465,7 @@ async def process_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return True
 
 
-        return False #говорим не прерывать
+        return False # говорим не прерывать /// True #говорим  прерывать
 
 
 # === Команды бота ===
@@ -480,14 +484,53 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Получаем текущую дату и время
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        if chat_id in managers_chats_id:        #id нашх сотрудников
-            if chat_type not in ['group', 'supergroup']: #проеряем спам только в группах]
+        if str(user_id) in managers_chats_id:        #id нашх сотрудников
+            if chat_type in ['group', 'supergroup']: #проеряем спам только в группах]
                 return False
 
         have_to_break = await process_spam(update,context)
 
         if have_to_break:
             return
+
+
+
+
+
+        if chat_type in ['group', 'supergroup']:  # Отвечаем в группах стандартным приглашением
+            current_timestamp = datetime.now().timestamp()
+
+            # Проверяем, является ли текущий день будним (0=понедельник, 6=воскресенье)
+            if now.weekday() >= 5:  # 5 = суббота, 6 = воскресенье
+                logger.info(f"Выходной день ({now.strftime('%A')}), ответ в группе {chat_id} не отправлен.")
+                return  # Не отвечаем в субботу и воскресенье
+
+
+            key = (chat_id, user_id)  # Уникальный ключ: чат + пользователь
+
+            # Проверяем, был ли уже ответ этому пользователю менее 30 минут назад
+            if key in last_response_time:
+                time_since_last = current_timestamp - last_response_time[key]
+                if time_since_last < RESPONSE_COOLDOWN:
+                    logger.info(f"Пропущен ответ на пользователя {user_id} в чате {chat_id}: кулдаун ещё действует ({int(time_since_last)} из {RESPONSE_COOLDOWN} сек)")
+                    return  # Не отвечаем, если прошло меньше 30 минут
+
+            # Если прошло достаточно времени — отправляем сообщение
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=(
+                        "Я ИИ бот. Для быстрого ответа задайте вопрос @DomOtelManual_bot, например - «расчет по квратире 32», или «2К с ПВ 800». Или ждите ответа менеджера. "
+                    ),
+                    reply_to_message_id=update.message.message_id
+                )
+                # Обновляем время последнего ответа этому пользователю
+                last_response_time[key] = current_timestamp
+                logger.info(f"Ответ отправлен пользователю {user_id} в чате {chat_id}")
+                return  # Не отвечаем больш ничего
+            except Exception as e:
+                logger.error(f"Не удалось отправить сообщение: {str(e)}")
+                return
 
 
 
@@ -567,12 +610,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_message(update, context)  # Повторная попытка
     except Exception as e:
         logger.error(f"Неожиданная ошибка: {str(e)}")
+        chat_type = update.effective_chat.type
         if chat_type not in ['group', 'supergroup']:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="Произошла ошибка. Пожалуйста, попробуйте позже."
             )
-        else:
+        if 1:
             for chat in admin_chats_id:
                 await context.bot.send_message(
                     chat_id=chat,
