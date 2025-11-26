@@ -5,13 +5,17 @@ from telegram.error import TimedOut, NetworkError
 import requests
 import time
 import asyncio
-from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, managers_chats_id, admin_chats_id, TOKEN_FILE, CERT_PATH, SPAM_DETECTION_PROMPT, RESPONSE_COOLDOWN
+from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, managers_chats_id, admin_chats_id, TOKEN_FILE, CERT_PATH, SPAM_DETECTION_PROMPT, RESPONSE_COOLDOWN, base_tokens, reserved_for_history
 
 import re
 import json
 import os
 from datetime import datetime
+import random
 
+
+
+max_total_tokens = base_tokens + reserved_for_history
 
 # Глобальный словарь для хранения истории чатов
 chat_history = {}
@@ -31,6 +35,61 @@ token_expires_at = 0
 chat_history = {}
 last_response_time = {}  # { (chat_id, user_id): timestamp }
 
+def estimate_prompt_length(prompt_text):
+    """
+    Оценивает длину промпта в символах (грубая оценка токенов)
+    Примерно: 1 токен ≈ 4 символа для русского текста
+    """
+    return len(prompt_text)
+
+
+def calculate_available_tokens(base_prompt_length):
+    """
+    Рассчитывает сколько токенов доступно для истории
+    max_total_tokens - общий лимит
+    """
+    # Базовый промпт + ответ (base_tokens) + запас
+    used_tokens = (base_prompt_length // 4) + base_tokens + 100
+    available_for_history = max_total_tokens - used_tokens
+    return max(available_for_history, 0)
+
+
+def get_optimized_history(chat_history, available_tokens):
+    """Возвращает историю, которая влезает в доступные токены"""
+    if not chat_history_list:
+        return ""
+    messages_to_include = []
+    current_tokens = 0
+
+    # Идем от самых новых к старым сообщениям
+    for msg in reversed(chat_history[-10:]):  # максимум 10 последних
+        msg_text = f"{msg['role']}: {msg['content']}"  # без timestamp для экономии
+        msg_tokens = len(msg_text) // 4
+
+        if current_tokens + msg_tokens <= available_tokens:
+            messages_to_include.insert(0, msg_text)  # добавляем в начало
+            current_tokens += msg_tokens
+        else:
+            break
+
+    return "\n".join(messages_to_include)
+
+
+
+def cleanup_old_chats(max_chats=1000, max_messages_per_chat=50):
+    """Очищает старые чаты чтобы не переполнять память"""
+    global chat_history
+
+    if len(chat_history) > max_chats:
+        # Оставляем только самые новые чаты
+        oldest_chats = sorted(chat_history.keys())[:-max_chats]
+        for chat_id in oldest_chats:
+            del chat_history[chat_id]
+
+    # Ограничиваем историю в каждом чате
+    for chat_id in chat_history:
+        if len(chat_history[chat_id]) > max_messages_per_chat:
+            chat_history[chat_id] = chat_history[chat_id][-max_messages_per_chat:]
 
 
 def is_spam_by_keywords(text: str) -> bool:
@@ -319,7 +378,16 @@ def get_gpt_response(prompt):
     try:
         # Получаем токен (из кэша или новый)
         access_token = get_gigachat_token()
-        
+
+        # Оцениваем длину промпта в токенах
+        estimated_prompt_tokens = len(prompt) // 4
+
+        tokens_for_response = min(max_total_tokens, estimated_prompt_tokens)
+
+        logger.info(f"Промпт: len(prompt) {len(prompt)} требует (//4) = {estimated_prompt_tokens} токенов, "
+                   f"доступно для ответа (max_total_tokens): {max_total_tokens}, "
+                   f"установлено: {tokens_for_response}")
+
         # Запрос к GigaChat API
         chat_url = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
         chat_headers = {
@@ -331,7 +399,7 @@ def get_gpt_response(prompt):
             "model": "GigaChat",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.7,
-            "max_tokens": 400
+            "max_tokens": tokens_for_response
         }
 
         response = requests.post(
@@ -485,7 +553,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         if str(user_id) in managers_chats_id:        #id нашх сотрудников
-            if chat_type in ['group', 'supergroup']: #проеряем спам только в группах]
+            if chat_type in ['group', 'supergroup']: #в группах
                 return False
 
         have_to_break = await process_spam(update,context)
@@ -498,8 +566,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
         if chat_type in ['group', 'supergroup']:  # Отвечаем в группах стандартным приглашением
+            return
             current_timestamp = datetime.now().timestamp()
-
+            now = datetime.now()
             # Проверяем, является ли текущий день будним (0=понедельник, 6=воскресенье)
             if now.weekday() >= 5:  # 5 = суббота, 6 = воскресенье
                 logger.info(f"Выходной день ({now.strftime('%A')}), ответ в группе {chat_id} не отправлен.")
@@ -533,24 +602,62 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
 
-
+        logger.info(f"Получен запрос от пользователя: {user_text}")
 
         # Инициализируем историю чата, если её ещё нет
         if chat_id not in chat_history:
             chat_history[chat_id] = []
-            
-        chat_history[chat_id].append({
-            "role": "user",
-            "content": user_text,
-            "timestamp": current_time
-        })
-         
-        history_prompt = "\n".join(
-            f"[{msg['timestamp']}] {msg['role']}: {msg['content']}"
-            for msg in chat_history[chat_id][-10:]  # Берем последние 10 сообщений
-        )
+
+
+
+
+
+
+#         history_prompt = "\n".join(
+#             f"[{msg['timestamp']}] {msg['role']}: {msg['content']}"
+#             for msg in chat_history[chat_id][-10:]  # Берем последние 10 сообщений
+#         )
+
+        # Базовый промпт без истории
+        base_prompt = f"""{SYSTEM_PROMPT}
+        Контекст:
+        {CONTEXT_TEXT}
+
+        Текущий вопрос: {user_text}
+
+        Ответ:"""
+
+        base_length = estimate_prompt_length(base_prompt)
+        available_history_tokens = calculate_available_tokens(base_length)
+
+        # Получаем оптимизированную историю
+        if available_history_tokens > 50:  # Минимум 50 токенов для истории
+            history_prompt = get_optimized_history(chat_history[chat_id], available_history_tokens)
+            full_prompt = f"""{SYSTEM_PROMPT}
+        Контекст:
+        {CONTEXT_TEXT}
+
+        История чата:
+        {history_prompt}
+
+        Текущий вопрос: {user_text}
+
+        Ответ:"""
+        else:
+            full_prompt = base_prompt
+            logger.info(f"История не включена. Доступно токенов для истории: {available_history_tokens}")
+
+        logger.info(f"Длина промпта: {estimate_prompt_length(full_prompt)} символов")
+
+
+
+
+
+
+
+
         
-        logger.info(f"Получен запрос от пользователя: {user_text}")
+
         
         # Показываем статус "печатает" пока ждем ответ
         await context.bot.send_chat_action(
@@ -558,16 +665,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             action="typing"
         )
         
-        full_prompt = f"""{SYSTEM_PROMPT}
-        Контекст:
-        {CONTEXT_TEXT}
-        
-        История чата:
-        {history_prompt}
-        
-        Текущий вопрос: {user_text}
-        
-        Ответ:"""
+
         
         # Увеличиваем таймаут для запроса к GigaChat
         try:
@@ -579,7 +677,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning("Превышено время ожидания ответа от GigaChat")
             reply_text = "Извините, обработка запроса заняла слишком много времени. Попробуйте позже."
 
-        
+
+        chat_history[chat_id].append({
+            "role": "user",
+            "content": user_text,
+            "timestamp": current_time
+        })
+
         # Добавляем ответ бота в историю
         chat_history[chat_id].append({
             "role": "assistant",
@@ -603,7 +707,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat, text="--> !!! мы ему ответили '"+reply_text+"'"
             #, parse_mode="HTML"
             )
-        
+
+        if random.random() < 0.01:  # 1% шанс
+            cleanup_old_chats()
+            logger.info("Выполнена рандомная очистка старых чатов")
+
     except (TimedOut, NetworkError) as e:
         logger.warning(f"Таймаут при отправке сообщения: {str(e)}")
         await asyncio.sleep(1)
