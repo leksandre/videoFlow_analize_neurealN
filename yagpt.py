@@ -19,7 +19,7 @@ max_total_tokens = base_tokens + reserved_for_history
 
 # Глобальный словарь для хранения истории чатов
 chat_history = {}
-token_word = 80
+token_word = 50
 # === Логирование ===
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -413,8 +413,8 @@ def get_gpt_response(prompt, spam_check = False):
             "model": "GigaChat",
             "messages": [{"role": "user", "content": prompt}],
             "n":1,
-            "top_p": 0.3,
-            "temperature": 0.4,
+            "top_p": 0.2,
+            "temperature": 0.3,
             "max_tokens": tokens_for_response
         }
 
