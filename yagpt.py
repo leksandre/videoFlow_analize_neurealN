@@ -19,7 +19,7 @@ max_total_tokens = base_tokens + reserved_for_history
 
 # Глобальный словарь для хранения истории чатов
 chat_history = {}
-
+token_word = 80
 # === Логирование ===
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -49,22 +49,20 @@ def calculate_available_tokens(base_prompt_length):
     max_total_tokens - общий лимит
     """
     # Базовый промпт + ответ (base_tokens) + запас
-    used_tokens = (base_prompt_length // 4) + base_tokens + 100
+    used_tokens = (base_prompt_length // token_word) + base_tokens + 100
     available_for_history = max_total_tokens - used_tokens
     return max(available_for_history, 0)
 
 
 def get_optimized_history(chat_history, available_tokens):
     """Возвращает историю, которая влезает в доступные токены"""
-    if not chat_history_list:
-        return ""
     messages_to_include = []
     current_tokens = 0
 
     # Идем от самых новых к старым сообщениям
     for msg in reversed(chat_history[-10:]):  # максимум 10 последних
         msg_text = f"{msg['role']}: {msg['content']}"  # без timestamp для экономии
-        msg_tokens = len(msg_text) // 4
+        msg_tokens = len(msg_text) // token_word
 
         if current_tokens + msg_tokens <= available_tokens:
             messages_to_include.insert(0, msg_text)  # добавляем в начало
@@ -90,6 +88,18 @@ def cleanup_old_chats(max_chats=1000, max_messages_per_chat=50):
     for chat_id in chat_history:
         if len(chat_history[chat_id]) > max_messages_per_chat:
             chat_history[chat_id] = chat_history[chat_id][-max_messages_per_chat:]
+
+
+
+def has_valid_message_text(update):
+    """Проверяет, есть ли валидный текст сообщения"""
+    return (update and
+            hasattr(update, 'message') and
+            update.message and
+            hasattr(update.message, 'text') and
+            update.message.text and
+            len(update.message.text.strip()) > 0)
+
 
 
 def is_spam_by_keywords(text: str) -> bool:
@@ -269,7 +279,7 @@ def is_spam_via_gigachat(text: str) -> bool:
     logger.info(f"str(text) {str(text)}")
     try:
         # Используем уже существующую функцию запроса
-        response = get_gpt_response(full_prompt)
+        response = get_gpt_response(full_prompt, True)
 
 
 #         response = await asyncio.wait_for(
@@ -374,17 +384,20 @@ def save_token_to_file(token_data):
     except Exception as e:
         logger.error(f"Не удалось сохранить токен в файл: {str(e)}")
 
-def get_gpt_response(prompt):
+def get_gpt_response(prompt, spam_check = False):
     try:
         # Получаем токен (из кэша или новый)
         access_token = get_gigachat_token()
 
         # Оцениваем длину промпта в токенах
-        estimated_prompt_tokens = len(prompt) // 4
+        estimated_prompt_tokens = len(prompt) // token_word
 
         tokens_for_response = min(max_total_tokens, estimated_prompt_tokens)
 
-        logger.info(f"Промпт: len(prompt) {len(prompt)} требует (//4) = {estimated_prompt_tokens} токенов, "
+        if spam_check:
+            tokens_for_response = 100
+
+        logger.info(f"Промпт: len(prompt) {len(prompt)} требует (//{token_word}) = {estimated_prompt_tokens} токенов, "
                    f"доступно для ответа (max_total_tokens): {max_total_tokens}, "
                    f"установлено: {tokens_for_response}")
 
@@ -395,10 +408,13 @@ def get_gpt_response(prompt):
             'Authorization': f'Bearer {access_token}',
         }
 
+
         chat_payload = {
             "model": "GigaChat",
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.7,
+            "n":1,
+            "top_p": 0.3,
+            "temperature": 0.4,
             "max_tokens": tokens_for_response
         }
 
@@ -430,6 +446,11 @@ def get_gpt_response(prompt):
 
 
 async def process_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+        if not has_valid_message_text(update):
+            logger.warning("Нет валидного текста сообщения")
+            return
+
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
         message_id = update.message.message_id
@@ -535,12 +556,16 @@ async def process_spam(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return False # говорим не прерывать /// True #говорим  прерывать
 
-
 # === Команды бота ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Привет! Задай мне вопрос по компании Дом Отель.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not has_valid_message_text(update):
+        logger.warning("Нет валидного текста сообщения")
+        return
+
     try:
         user_text = update.message.text
         chat_id = update.effective_chat.id
