@@ -5,7 +5,7 @@ from telegram.error import TimedOut, NetworkError
 import requests
 import time
 import asyncio
-from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, managers_chats_id, admin_chats_id, TOKEN_FILE, CERT_PATH, SPAM_DETECTION_PROMPT, RESPONSE_COOLDOWN, base_tokens, reserved_for_history
+from some import TELEGRAM_BOT_TOKEN, GGC_TOKEN, SYSTEM_PROMPT, CONTEXT_TEXT, service_chats_id, managers_chats_id, admin_chats_id, TOKEN_FILE, CERT_PATH, SPAM_DETECTION_PROMPT, RESPONSE_COOLDOWN, base_tokens, reserved_for_history, token_word
 
 import re
 import json
@@ -19,7 +19,7 @@ max_total_tokens = base_tokens + reserved_for_history
 
 # Глобальный словарь для хранения истории чатов
 chat_history = {}
-token_word = 50
+
 # === Логирование ===
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -394,8 +394,27 @@ def get_gpt_response(prompt, spam_check = False):
 
         tokens_for_response = min(max_total_tokens, estimated_prompt_tokens)
 
+
+        """
+        GigaChat 2 Lite	GigaChat-2	128 тыс.	да	Быстрая и легкая модель
+        для простых повседневных задач
+        GigaChat 2 Pro	GigaChat-2-Pro	128 тыс.	да	Усовершенствованная модель
+        для ресурсоемких задач,
+        обеспечивающая максимальную эффективность
+        в обработке данных,
+        креативности и соблюдении инструкций
+        GigaChat 2 Max	GigaChat-2-Max	128 тыс.	да	Мощная модель для самых сложных и масштабных задач,
+        требующих высочайшего уровня креативности
+        и качества исполнения
+        """
+
+
+#         model = "GigaChat-Pro-preview" # "GigaChat-Pro-preview GigaChat-2-Pro" "GigaChat-2" "GigaChat-2-Max"
+        model = "GigaChat-2" #
+
         if spam_check:
             tokens_for_response = 100
+            model = "GigaChat-2"
 
         logger.info(f"Промпт: len(prompt) {len(prompt)} требует (//{token_word}) = {estimated_prompt_tokens} токенов, "
                    f"доступно для ответа (max_total_tokens): {max_total_tokens}, "
@@ -410,7 +429,7 @@ def get_gpt_response(prompt, spam_check = False):
 
 
         chat_payload = {
-            "model": "GigaChat",
+            "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "n":1,
             "top_p": 0.2,
@@ -591,13 +610,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
         if chat_type in ['group', 'supergroup']:  # Отвечаем в группах стандартным приглашением
-            return
+        
+            #return # пока заблокируем ответы в группе ()
+
             current_timestamp = datetime.now().timestamp()
             now = datetime.now()
-            # Проверяем, является ли текущий день будним (0=понедельник, 6=воскресенье)
-            if now.weekday() >= 5:  # 5 = суббота, 6 = воскресенье
-                logger.info(f"Выходной день ({now.strftime('%A')}), ответ в группе {chat_id} не отправлен.")
-                return  # Не отвечаем в субботу и воскресенье
+
+
+#             # Проверяем, является ли текущий день будним (0=понедельник, 6=воскресенье)
+#             if now.weekday() >= 5:  # 5 = суббота, 6 = воскресенье
+#                 logger.info(f"Выходной день ({now.strftime('%A')}), ответ в группе {chat_id} не отправлен.")
+#                 return  # Не отвечаем в субботу и воскресенье
 
 
             key = (chat_id, user_id)  # Уникальный ключ: чат + пользователь
