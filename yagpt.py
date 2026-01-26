@@ -60,7 +60,7 @@ def get_optimized_history(chat_history, available_tokens):
     current_tokens = 0
 
     # Идем от самых новых к старым сообщениям
-    for msg in reversed(chat_history[-10:]):  # максимум 10 последних
+    for msg in reversed(chat_history[-4:]):  # максимум 4 последних
         msg_text = f"{msg['role']}: {msg['content']}"  # без timestamp для экономии
         msg_tokens = len(msg_text) // token_word
 
@@ -587,6 +587,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         user_text = update.message.text
+        user_text = re.sub(r'[^a-zA-Zа-яА-Я0-9\s.,]', '', user_text)
+
         chat_id = update.effective_chat.id
 
         user_id = update.effective_user.id
@@ -610,8 +612,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
         if chat_type in ['group', 'supergroup']:  # Отвечаем в группах стандартным приглашением
-        
-            #return # пока заблокируем ответы в группе ()
+
+#             return # пока заблокируем ответы в группе ()
 
             current_timestamp = datetime.now().timestamp()
             now = datetime.now()
@@ -746,15 +748,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_to_message_id=update.message.message_id
             #, parse_mode="HTML"
         )
-        
-        for chat in service_chats_id: 
-            user = update.message.from_user
+
+        user = update.message.from_user
+        for chat in service_chats_id:
             await context.bot.send_message(chat_id=chat, text="--> !!! пользователь ("+str(update.effective_chat.id)+") ("+str(user)+") написал '"+user_text+"'"
             #, parse_mode="HTML"
             )
             await context.bot.send_message(chat_id=chat, text="--> !!! мы ему ответили '"+reply_text+"'"
             #, parse_mode="HTML"
             )
+
+        #         chatId = "-1002235142487"
+        await context.bot.send_message(chat_id="-1002303418717", text="username @"+str(user.username)+" - написал '"+user_text+"' @AnnaErkes @MaksShevnin "
+        #, parse_mode="HTML"
+        )
+
 
         if random.random() < 0.01:  # 1% шанс
             cleanup_old_chats()
